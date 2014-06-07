@@ -216,12 +216,6 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	  		}
 	      	mTitle.setText(R.string.title_not_connected); // if no service is running means no devices are connected
 	      }         
-	     
-		 /* JD: initialize title */
-		 if(mConnectedDeviceList.size()>0){
-			 mTitle.setText(R.string.title_connected_to);
-			 mTitle.append(" "+mConnectedDeviceList.size()+" devices");  
-		 }
 //		 
 //	      if (mBluetoothAddress!=null){
 //	      	mTitle.setText(R.string.title_connected_to);
@@ -333,7 +327,6 @@ public class ShimmerGraphandLogService extends ServiceActivity {
                 case Shimmer.MSG_STATE_FULLY_INITIALIZED:
                 	Log.d("ShimmerActivity","Message Fully Initialized Received from Shimmer driver");
                 	/* JD: new device connected, add it to connected device list */
-                    
                     mNewConnectedDeviceAddr=((ObjectCluster)msg.obj).mBluetoothAddress;
                     String devName = ((ObjectCluster)msg.obj).mMyName;
                     if(devName.equalsIgnoreCase("Device")){
