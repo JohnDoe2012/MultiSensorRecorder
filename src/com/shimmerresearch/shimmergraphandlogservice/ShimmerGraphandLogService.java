@@ -36,7 +36,9 @@
 
 package com.shimmerresearch.shimmergraphandlogservice;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 
 import android.app.Activity;
@@ -64,6 +66,7 @@ import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
+import android.widget.SimpleAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -98,10 +101,20 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	private static TextView mTextSensor1;
 	private static TextView mTextSensor2;
 	private static TextView mTextSensor3;
+	//JD: listview of connected devices
+	private static ListView mListConnectedDev;
+	
+	
 	// Local Bluetooth adapter
 	private BluetoothAdapter mBluetoothAdapter = null;
 	// Name of the connected device
-    private static String mBluetoothAddress = null;
+    // private static String mBluetoothAddress = null;
+	// Connected device list
+    private static ArrayList<HashMap<String, String>> mConnectedDeviceList = null;
+	private static SimpleAdapter mConnectedDeviceAdapters;
+	private static String mNewConnectedDeviceAddr = null;	// newly connected device address
+    private static String mSelectedDeviceName = null;	// name of device currently selected
+    private static String mSelectedDeviceAddr = null;   // address of device currently selected
     // Member object for communication services
     private String mSignaltoGraph;
     private static String mSensorView = ""; //The sensor device which should be viewed on the graph
@@ -111,6 +124,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
     private static boolean mEnableLogging = false;
     Dialog mDialog;
     int dialogEnabledSensors=0;
+    
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -129,7 +143,16 @@ public class ShimmerGraphandLogService extends ServiceActivity {
       
       
         mDialog = new Dialog(this);
-      
+        
+        /* JD: initialize view for connected device list */
+        mListConnectedDev = (ListView) findViewById(R.id.connected_dev);
+		mConnectedDeviceList = new ArrayList<HashMap<String, String>>();
+		mConnectedDeviceAdapters = new SimpleAdapter(this, mConnectedDeviceList, 
+				 R.layout.connected_device, new String[]{"device_cell","state_cell"}, 
+				 new int[]{R.id.device_cell, R.id.state_cell});
+		mListConnectedDev.setAdapter(mConnectedDeviceAdapters);
+		registerForContextMenu(mListConnectedDev);
+		
     	mGraph = (GraphView)findViewById(R.id.graph);
         mValueSensor1 = (TextView) findViewById(R.id.sensorvalue1);
         mValueSensor2 = (TextView) findViewById(R.id.sensorvalue2);
@@ -193,18 +216,24 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	  		}
 	      	mTitle.setText(R.string.title_not_connected); // if no service is running means no devices are connected
 	      }         
-	      
-	      if (mBluetoothAddress!=null){
-	      	mTitle.setText(R.string.title_connected_to);
-	          mTitle.append(mBluetoothAddress);    
-	      }
-		 
-		 
-		 if (mEnableLogging==false){
-		      	mTitleLogging.setText("Logging Disabled");
-		      } else if (mEnableLogging==true){
-		      	mTitleLogging.setText("Logging Enabled");
-	      }
+	     
+		 /* JD: initialize title */
+		 if(mConnectedDeviceList.size()>0){
+			 mTitle.setText(R.string.title_connected_to);
+			 mTitle.append(" "+mConnectedDeviceList.size()+" devices");  
+		 }
+//		 
+//	      if (mBluetoothAddress!=null){
+//	      	mTitle.setText(R.string.title_connected_to);
+//	          mTitle.append(mBluetoothAddress);    
+//	      }
+//		 
+//		 
+//		 if (mEnableLogging==false){
+//		      	mTitleLogging.setText("Logging Disabled");
+//		      } else if (mEnableLogging==true){
+//		      	mTitleLogging.setText("Logging Enabled");
+//	      }
 		      
 		 
 		mTVPRR =  (TextView) findViewById(R.id.textViewPRR);
@@ -303,9 +332,30 @@ public class ShimmerGraphandLogService extends ServiceActivity {
                     break;
                 case Shimmer.MSG_STATE_FULLY_INITIALIZED:
                 	Log.d("ShimmerActivity","Message Fully Initialized Received from Shimmer driver");
+                	/* JD: new device connected, add it to connected device list */
+                    
+                    mNewConnectedDeviceAddr=((ObjectCluster)msg.obj).mBluetoothAddress;
+                    String devName = ((ObjectCluster)msg.obj).mMyName;
+                    if(devName.equalsIgnoreCase("Device")){
+                    	mService.setDeviceName(mNewConnectedDeviceAddr, 
+                    			mNewConnectedDeviceAddr.substring(12, 17).replace(":", ""));
+                    }
+                    devName = mService.getDeviceName(mNewConnectedDeviceAddr);
+                    String dispDevice = devName+"\n"+mNewConnectedDeviceAddr;
+                    String dispState = "Log ";
+                    if(mService.getEnableLogging(mNewConnectedDeviceAddr)){
+                    	dispState += "ON ";
+                    }else{
+                    	dispState += "OFF ";
+                    }
+                    dispState += "\nConnected";
+                    HashMap<String, String> map = new HashMap<String, String>();
+                    map.put("device_cell", dispDevice);
+                    map.put("state_cell", dispState);
+                    mConnectedDeviceLists.add(map);
+                    mConnectedDeviceAdapters.notifyDataSetChanged();
                     mTitle.setText(R.string.title_connected_to);
-                    mBluetoothAddress=((ObjectCluster)msg.obj).mBluetoothAddress;
-                    mTitle.append(mBluetoothAddress);    
+                    mTitle.append(" "+mService.DevicesConnectedCount()+" Devices");    
                     mService.enableGraphingHandler(true);
                     break;
                 case Shimmer.STATE_CONNECTING:

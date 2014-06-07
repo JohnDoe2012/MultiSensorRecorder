@@ -44,10 +44,10 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 
-
-
+import com.example.phonesensors.PhoneDevice;
 import com.shimmerresearch.android.Shimmer;
 import com.shimmerresearch.driver.*;
+import com.shimmerresearch.tools.LocalSensor;
 import com.shimmerresearch.tools.Logging;
 
 import android.app.Service;
@@ -67,6 +67,7 @@ public class ShimmerService extends Service {
     private boolean mEnableLogging=false;
 	private BluetoothAdapter mBluetoothAdapter = null;
 	private final IBinder mBinder = new LocalBinder();
+	public PhoneDevice mLocalDevice;
 	public HashMap<String, Object> mMultiShimmer = new HashMap<String, Object>(7);
 	public HashMap<String, Logging> mLogShimmer = new HashMap<String, Logging>(7);
 	private Handler mHandlerGraph=null;
@@ -79,18 +80,18 @@ public class ShimmerService extends Service {
 		return mBinder;
 	}
 	
-	@Override
-	public void onCreate() {
-		Toast.makeText(this, "My Service Created", Toast.LENGTH_LONG).show();
-		Log.d(TAG, "onCreate");
-	}
-
 	public class LocalBinder extends Binder {
         public ShimmerService getService() {
             // Return this instance of LocalService so clients can call public methods
             return ShimmerService.this;
         }
     }
+	
+	@Override
+	public void onCreate() {
+		Toast.makeText(this, "My Service Created", Toast.LENGTH_LONG).show();
+		Log.d(TAG, "onCreate");
+	}
 	
 	@Override
 	public void onDestroy() {
@@ -103,17 +104,6 @@ public class ShimmerService extends Service {
 			stemp.stop();
 		}
 		
-	}
-	
-	public void disconnectAllDevices(){
-		Collection<Object> colS=mMultiShimmer.values();
-		Iterator<Object> iterator = colS.iterator();
-		while (iterator.hasNext()) {
-			Shimmer stemp=(Shimmer) iterator.next();
-			stemp.stop();
-		}
-		mMultiShimmer.clear();
-		mLogShimmer.clear();
 	}
 	
     @Override
@@ -132,16 +122,6 @@ public class ShimmerService extends Service {
 
 	}
 	
-	public void connectShimmer(String bluetoothAddress,String selectedDevice){
-		Log.d("Shimmer","net Connection");
-		Shimmer shimmerDevice=new Shimmer(this, mHandler,selectedDevice,false);
-		mMultiShimmer.remove(bluetoothAddress);
-		if (mMultiShimmer.get(bluetoothAddress)==null){
-			mMultiShimmer.put(bluetoothAddress,shimmerDevice); 
-			((Shimmer) mMultiShimmer.get(bluetoothAddress)).connect(bluetoothAddress,"default");
-		}
-	}
-	
 	public void onStop(){
 		Toast.makeText(this, "My Service Stopped", Toast.LENGTH_LONG).show();
 		Log.d(TAG, "onDestroy");
@@ -152,19 +132,7 @@ public class ShimmerService extends Service {
 			stemp.stop();
 		}
 	}
-	
-	public void toggleAllLEDS(){
-		Collection<Object> colS=mMultiShimmer.values();
-		Iterator<Object> iterator = colS.iterator();
-		while (iterator.hasNext()) {
-			Shimmer stemp=(Shimmer) iterator.next();
-			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED){
-				stemp.toggleLed();
-			}
-		}
-	}
-	
-	
+		
 	  public final Handler mHandler = new Handler() {
 	        public void handleMessage(Message msg) {
 	            switch (msg.what) { // handlers have a what identifier which is used to identify the type of msg
@@ -245,7 +213,28 @@ public class ShimmerService extends Service {
 	        }
 	    };
 
-
+		
+	public void disconnectAllDevices(){
+		Collection<Object> colS=mMultiShimmer.values();
+		Iterator<Object> iterator = colS.iterator();
+		while (iterator.hasNext()) {
+			Shimmer stemp=(Shimmer) iterator.next();
+			stemp.stop();
+		}
+		mMultiShimmer.clear();
+		mLogShimmer.clear();
+	}
+	
+	public void connectShimmer(String bluetoothAddress,String selectedDevice){
+		Log.d("Shimmer","net Connection");
+		Shimmer shimmerDevice=new Shimmer(this, mHandler,selectedDevice,false);
+		mMultiShimmer.remove(bluetoothAddress);
+		if (mMultiShimmer.get(bluetoothAddress)==null){
+			mMultiShimmer.put(bluetoothAddress,shimmerDevice); 
+			((Shimmer) mMultiShimmer.get(bluetoothAddress)).connect(bluetoothAddress,"default");
+		}
+	}
+		
     public void stopStreamingAllDevices() {
 		// TODO Auto-generated method stub
 		Collection<Object> colS=mMultiShimmer.values();
@@ -270,6 +259,158 @@ public class ShimmerService extends Service {
 				stemp.startStreaming();
 			}
 		}
+	}
+	
+	/**
+	 * JD: Set a new alias for a connected device
+	 * @param bluetoothAddress address of connected device
+	 * @param newName new alias, if null a default name will be assigned
+	 * @return 
+	 */
+	public boolean setDeviceName(String bluetoothAddress, String newName){
+		String devName = (newName!=null)?newName:"default";
+		Collection<Object> colS=mMultiShimmer.values();
+		Iterator<Object> iterator = colS.iterator();
+		while (iterator.hasNext()) {
+			Shimmer stemp=(Shimmer) iterator.next();
+			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED  && stemp.getBluetoothAddress().equals(bluetoothAddress)){
+				stemp.setDeviceName(devName);
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * JD: get the alias for connected device
+	 * @param bluetoothAddress address of connected device
+	 * @return 
+	 */
+	public String getDeviceName(String bluetoothAddress){
+		String devName = "default";
+		if(bluetoothAddress.equalsIgnoreCase(LocalSensor.LOCAL_ADDR)){
+			devName = LocalSensor.LOCAL_NAME;
+		}else{
+			Collection<Object> colS=mMultiShimmer.values();
+			Iterator<Object> iterator = colS.iterator();
+			while (iterator.hasNext()) {
+				Shimmer stemp=(Shimmer) iterator.next();
+				if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED  && stemp.getBluetoothAddress().equals(bluetoothAddress)){
+					devName = stemp.getDeviceName();
+				}
+			}
+		}
+		return devName;
+	}
+	
+	/**
+	 * JD: check how many devices are currently connected
+	 * @return number of connected devices
+	 */
+	public int DevicesConnectedCount(){
+		int count = 0;
+		if(mLocalDevice!=null) count++;
+		Collection<Object> colS=mMultiShimmer.values();
+		Iterator<Object> iterator = colS.iterator();
+		while (iterator.hasNext()) {
+			Shimmer stemp=(Shimmer) iterator.next();
+			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED){
+				count++;
+			}
+		}
+		return count;
+	}
+	
+	/**
+	 * JD: check if a device is connected
+	 * @param bluetoothAddress address of device
+	 * @return true if connected
+	 */
+	public boolean DevicesConnected(String bluetoothAddress){
+		boolean deviceConnected=false;
+		if(bluetoothAddress.equalsIgnoreCase(LocalSensor.LOCAL_ADDR)){
+			return (mLocalDevice==null)?false:true;
+		}
+		Collection<Object> colS=mMultiShimmer.values();
+		Iterator<Object> iterator = colS.iterator();
+		while (iterator.hasNext()) {
+			Shimmer stemp=(Shimmer) iterator.next();
+			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED && stemp.getBluetoothAddress().equals(bluetoothAddress)){
+				deviceConnected=true;
+			}
+		}
+		return deviceConnected;
+	}
+	
+	/**
+	 * JD: check how many devices are currently streaming
+	 * @return number of streaming devices
+	 */
+	public int DevicesStreamingCount(){
+		int count = 0;
+		if((mLocalDevice!=null)&&(mLocalDevice.getStreamingStatus())) count++;
+		Collection<Object> colS=mMultiShimmer.values();
+		Iterator<Object> iterator = colS.iterator();
+		while (iterator.hasNext()) {
+			Shimmer stemp=(Shimmer) iterator.next();
+			if (stemp.getStreamingStatus() == true){
+				count++;
+			}
+		}
+		return count;
+	}
+	
+	/**
+	 * JD: check if a device is streaming
+	 * @param bluetoothAddress address of device
+	 * @return true if streaming
+	 */
+	public boolean DeviceIsStreaming(String bluetoothAddress){
+		boolean deviceStreaming=false;
+		if(bluetoothAddress.equalsIgnoreCase(LocalSensor.LOCAL_ADDR)){
+			deviceStreaming = (mLocalDevice!=null)?mLocalDevice.getStreamingStatus():false;
+		}else{
+			Collection<Object> colS=mMultiShimmer.values();
+			Iterator<Object> iterator = colS.iterator();
+			while (iterator.hasNext()) {
+				Shimmer stemp=(Shimmer) iterator.next();
+				if (stemp.getStreamingStatus() == true  && stemp.getBluetoothAddress().equals(bluetoothAddress)){
+					deviceStreaming=true;
+				}
+			}
+		}
+		return deviceStreaming;
+	}
+	
+	public void setEnableLogging(boolean enableLogging, String bluetoothAddress){
+		if(bluetoothAddress.equalsIgnoreCase(LocalSensor.LOCAL_ADDR)){
+			mLocalDevice.setEnableLogging(enableLogging);
+		}else{
+			Collection<Object> colS=mMultiShimmer.values();
+			Iterator<Object> iterator = colS.iterator();
+			while (iterator.hasNext()) {
+				Shimmer stemp=(Shimmer) iterator.next();
+				if (stemp.getBluetoothAddress().equals(bluetoothAddress)){
+					stemp.setEnableLogging(enableLogging);
+				}
+			}
+		}
+	}
+	
+	public boolean getEnableLogging(String bluetoothAddress){
+		boolean logging = false;
+		if(bluetoothAddress.equalsIgnoreCase(LocalSensor.LOCAL_ADDR)){
+			logging = mLocalDevice.getEnableLogging();
+		}else{
+			Collection<Object> colS=mMultiShimmer.values();
+			Iterator<Object> iterator = colS.iterator();
+			while (iterator.hasNext()) {
+				Shimmer stemp=(Shimmer) iterator.next();
+				if (stemp.getBluetoothAddress().equals(bluetoothAddress)){
+					logging = stemp.getEnableLogging();
+				}
+			}
+		}
+		return logging;
 	}
 	
 	public void setEnableLogging(boolean enableLogging){
@@ -340,6 +481,17 @@ public class ShimmerService extends Service {
 		}
 	}
 
+	public void toggleAllLEDS(){
+		Collection<Object> colS=mMultiShimmer.values();
+		Iterator<Object> iterator = colS.iterator();
+		while (iterator.hasNext()) {
+			Shimmer stemp=(Shimmer) iterator.next();
+			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED){
+				stemp.toggleLed();
+			}
+		}
+	}
+	
 	public void toggleLED(String bluetoothAddress) {
 		// TODO Auto-generated method stub
 		Collection<Object> colS=mMultiShimmer.values();
@@ -375,10 +527,7 @@ public class ShimmerService extends Service {
 			}
 		}
 	}
-	
 
-	
-	
 	public int getEnabledSensors(String bluetoothAddress) {
 		// TODO Auto-generated method stub
 		Collection<Object> colS=mMultiShimmer.values();
@@ -711,31 +860,31 @@ public class ShimmerService extends Service {
 		mGraphing=setting;
 	}
 	
-	public boolean DevicesConnected(String bluetoothAddress){
-		boolean deviceConnected=false;
-		Collection<Object> colS=mMultiShimmer.values();
-		Iterator<Object> iterator = colS.iterator();
-		while (iterator.hasNext()) {
-			Shimmer stemp=(Shimmer) iterator.next();
-			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED && stemp.getBluetoothAddress().equals(bluetoothAddress)){
-				deviceConnected=true;
-			}
-		}
-		return deviceConnected;
-	}
-	
-	public boolean DeviceIsStreaming(String bluetoothAddress){
-		boolean deviceStreaming=false;
-		Collection<Object> colS=mMultiShimmer.values();
-		Iterator<Object> iterator = colS.iterator();
-		while (iterator.hasNext()) {
-			Shimmer stemp=(Shimmer) iterator.next();
-			if (stemp.getStreamingStatus() == true  && stemp.getBluetoothAddress().equals(bluetoothAddress)){
-				deviceStreaming=true;
-			}
-		}
-		return deviceStreaming;
-	}
+//	public boolean DevicesConnected(String bluetoothAddress){
+//		boolean deviceConnected=false;
+//		Collection<Object> colS=mMultiShimmer.values();
+//		Iterator<Object> iterator = colS.iterator();
+//		while (iterator.hasNext()) {
+//			Shimmer stemp=(Shimmer) iterator.next();
+//			if (stemp.getShimmerState()==Shimmer.STATE_CONNECTED && stemp.getBluetoothAddress().equals(bluetoothAddress)){
+//				deviceConnected=true;
+//			}
+//		}
+//		return deviceConnected;
+//	}
+//	
+//	public boolean DeviceIsStreaming(String bluetoothAddress){
+//		boolean deviceStreaming=false;
+//		Collection<Object> colS=mMultiShimmer.values();
+//		Iterator<Object> iterator = colS.iterator();
+//		while (iterator.hasNext()) {
+//			Shimmer stemp=(Shimmer) iterator.next();
+//			if (stemp.getStreamingStatus() == true  && stemp.getBluetoothAddress().equals(bluetoothAddress)){
+//				deviceStreaming=true;
+//			}
+//		}
+//		return deviceStreaming;
+//	}
 	
 	public boolean GetInstructionStatus(String bluetoothAddress){
 		boolean instructionStatus=false;

@@ -3,37 +3,52 @@
     android:layout_height="fill_parent"
     android:background="#ff444444"
     android:orientation="vertical" >
+    
+    <!-- JD: add a list for currently connected devices -->
     <LinearLayout
-        android:id="@+id/linearLayout2"
+        android:id="@+id/linearLayout0"
+        android:layout_width="fill_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.4"
+        android:background="#ff000000"
+        android:orientation="vertical" >
+        <ListView
+            android:id="@+id/connected_dev"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" >
+        </ListView>
+    </LinearLayout>
+    
+    <LinearLayout
+        android:id="@+id/linearLayout1"
         android:layout_width="fill_parent"
         android:layout_height="0dp"
         android:layout_marginTop="0.01pt"
-        android:layout_weight="2.7"
-        android:background="#ff444444" >
-    <FrameLayout
-        android:layout_width="fill_parent"
-        android:layout_height="fill_parent" >
-        <com.shimmerresearch.shimmergraphandlogservice.GraphView
-            android:id="@+id/graph"
-            android:layout_width="fill_parent"
-            android:layout_height="match_parent" />
-
-                <TextView
-                    android:id="@+id/textViewPRR"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="right|top"
-                    android:text="Packet reception rate" />
-
-    </FrameLayout>
+        android:layout_weight="0.4"
+        android:background="#ff444444" 
+        android:orientation="vertical" >
+        <FrameLayout
+        	android:layout_width="fill_parent"
+        	android:layout_height="fill_parent" >
+        	<com.shimmerresearch.shimmergraphandlogservice.GraphView
+            	android:id="@+id/graph"
+            	android:layout_width="fill_parent"
+            	android:layout_height="match_parent" />
+			<TextView
+				android:id="@+id/textViewPRR"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_gravity="right|top"
+				android:text="Packet reception rate" />
+		</FrameLayout>
      </LinearLayout>
 
-    <LinearLayout
+	<LinearLayout
         android:id="@+id/linearLayout2"
         android:layout_width="fill_parent"
         android:layout_height="0dp"
         android:layout_marginTop="0.01pt"
-        android:layout_weight=".5"
+        android:layout_weight="0.14"
         android:background="#ff444444" >
 
         <TextView
@@ -74,11 +89,12 @@
             android:textSize="20sp" >
         </TextView>
     </LinearLayout>
-
+    
     <LinearLayout
-        android:id="@+id/linearLayout1"
+        android:id="@+id/linearLayout3"
         android:layout_width="fill_parent"
         android:layout_height="wrap_content"
+        android:layout_weight="0.06"
         android:background="#ff444444" >
 
         <TextView
@@ -116,7 +132,5 @@
             android:textSize="20sp" >
         </TextView>
     </LinearLayout>
-
-    
 
 </LinearLayout>
