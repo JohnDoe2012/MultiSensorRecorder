@@ -3,6 +3,9 @@ package com.example.phonesensors;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import com.shimmerresearch.android.Shimmer;
 import com.shimmerresearch.driver.*;
@@ -13,6 +16,9 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -20,6 +26,8 @@ import android.util.Log;
 
 public class PhoneDevice implements SensorEventListener{
 	private static final String TAG = "LOCAL";
+	public static final int SAMPLING_INTRVL = 20; 	//ms
+	private static final int PREPARE_INTRVL = 30000; //ms
 	private static final int SENSOR_BARO = 0x100;
 	
 	private Context mContext;
@@ -28,14 +36,16 @@ public class PhoneDevice implements SensorEventListener{
 	private String mMyName;
 	private int mState;
 	
-	private Timer mSensorTimer;
+//	private Timer mSensorTimer;
+	private ScheduledThreadPoolExecutor mSensorScheduler;
 	private SensorManager mSensorManager;
 	private int mSensorCapa = 0;
 	private float bufAcce[];
 	private float bufOrie[];
 	private float bufGyro[];
 	private float bufBaro[];
-	private long mSamplingRate = 20;	//ms
+	private long mSamplingRate = SAMPLING_INTRVL;	//ms
+	private boolean isFirst = false;
 	
 	/**
 	 * Constructor
@@ -128,9 +138,7 @@ public class PhoneDevice implements SensorEventListener{
 	 */
 	public void destory(){
 		if(mState!=Shimmer.STATE_NONE){
-			if(mState==Shimmer.MSG_STATE_STREAMING){
-				stopStreaming();
-			}
+			stopStreaming();
 			mSensorManager.unregisterListener(this);
 			setState(Shimmer.STATE_NONE);
 		}
@@ -141,9 +149,10 @@ public class PhoneDevice implements SensorEventListener{
 	 */
 	public void startStreaming(){
 		if(mState==Shimmer.MSG_STATE_FULLY_INITIALIZED){
-			/* sampling every $SAMPLE_RATE_SENSOR ms*/
-			startTimer(mSensorTimer, new SensorSampleTask(), 10, mSamplingRate);
+//			startTimer(mSensorTimer, new SensorSampleTask(), 10, mSamplingRate);
+			startScheduler(mSensorScheduler, new SensorSampleSchedule(), PREPARE_INTRVL, mSamplingRate);
 			setState(Shimmer.MSG_STATE_STREAMING);
+			isFirst = true;
 		}
 	}
 	
@@ -152,7 +161,9 @@ public class PhoneDevice implements SensorEventListener{
 	 */
 	public void stopStreaming(){
 		if(mState==Shimmer.MSG_STATE_STREAMING){
-			stopTimer(mSensorTimer);
+//			stopTimer(mSensorTimer);
+			setState(Shimmer.MSG_STATE_FULLY_INITIALIZED);
+			stopScheduler(mSensorScheduler);
 			/* ask shimmer service to clear logfile material */
 			Message msg = mHandler.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
 	        Bundle bundle = new Bundle();
@@ -160,7 +171,6 @@ public class PhoneDevice implements SensorEventListener{
 	        bundle.putString("Bluetooth Address", mBluetoothAddress);
 	        msg.setData(bundle);
 	        mHandler.sendMessage(msg);
-	        setState(Shimmer.MSG_STATE_FULLY_INITIALIZED);
 		}
 	}
 	
@@ -194,8 +204,15 @@ public class PhoneDevice implements SensorEventListener{
 	 * Set phone device name, hardcoded according to bluetooth address
 	 */
 	private void setDeviceName(){
-		/*TODO: */
-		mMyName = "Local";
+		if(mBluetoothAddress.equalsIgnoreCase("78:52:1A:E4:D7:24")){
+			mMyName = "Hip";
+		}else if(mBluetoothAddress.equalsIgnoreCase("70:F9:27:60:3C:81")){
+			mMyName = "Thigh";
+		}else if(mBluetoothAddress.equalsIgnoreCase("70:F9:27:60:42:43")){
+			mMyName = "Arm";
+		}else{
+			mMyName = "Local";
+		}
 	}
 	
 	/**
@@ -288,35 +305,73 @@ public class PhoneDevice implements SensorEventListener{
 		return objectCluster;
 	}
 	
-	/**
-	 * Helper function that starts a timer
-	 * @param aTimer timer to be started or created
-	 * @param aTimerTask the task to schedule
-	 * @param delay amount of time in milliseconds before first execution
-	 * @param period amount of time in milliseconds between subsequent executions
-	 */
-	private void startTimer(Timer aTimer, TimerTask aTimerTask, long delay, long period){
-		aTimer = new Timer();
-		aTimer.scheduleAtFixedRate(aTimerTask, delay, period);
+	private void startScheduler(ScheduledThreadPoolExecutor aScheduler, Runnable aTimerTask, long delay, long period){
+		aScheduler = (ScheduledThreadPoolExecutor) Executors.newScheduledThreadPool(10);
+		aScheduler.scheduleAtFixedRate(aTimerTask, delay, period, TimeUnit.MILLISECONDS);
 	}
 	
-	/**
-	 * Helper function that stops a timer
-	 * @param aTimer timer to be stopped
-	 */
-	private void stopTimer(Timer aTimer){
-		if(aTimer!=null){
-			aTimer.cancel();
-			aTimer.purge();
+	private void stopScheduler(ScheduledThreadPoolExecutor aScheduler){
+		if(aScheduler!=null){
+			aScheduler.shutdown();
 		}
 	}
 	
-	private class SensorSampleTask extends TimerTask{
+	private class SensorSampleSchedule implements Runnable{
 		@Override
 		public void run() {
 			if(mState==Shimmer.MSG_STATE_STREAMING){
-				mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildData()).sendToTarget();				
+				mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildData()).sendToTarget();
+				if(isFirst){
+					beep();
+					isFirst = false;
+				}
 			}
 		}
 	}
+	
+	/**
+	 * Play a sound indicating the start of logging
+	 */
+	private void beep(){
+		try {
+		    Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+		    Ringtone r = RingtoneManager.getRingtone(mContext, notification);
+		    r.play();
+		} catch (Exception e) {
+		    e.printStackTrace();
+		}
+	}
+	
+//	
+//	/**
+//	 * Helper function that starts a timer
+//	 * @param aTimer timer to be started or created
+//	 * @param aTimerTask the task to schedule
+//	 * @param delay amount of time in milliseconds before first execution
+//	 * @param period amount of time in milliseconds between subsequent executions
+//	 */
+//	private void startTimer(Timer aTimer, TimerTask aTimerTask, long delay, long period){
+//		aTimer = new Timer();
+//		aTimer.scheduleAtFixedRate(aTimerTask, delay, period);
+//	}
+//	
+//	/**
+//	 * Helper function that stops a timer
+//	 * @param aTimer timer to be stopped
+//	 */
+//	private void stopTimer(Timer aTimer){
+//		if(aTimer!=null){
+//			aTimer.cancel();
+//			aTimer.purge();
+//		}
+//	}
+//	
+//	private class SensorSampleTask extends TimerTask{
+//		@Override
+//		public void run() {
+//			if(mState==Shimmer.MSG_STATE_STREAMING){
+//				mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildData()).sendToTarget();				
+//			}
+//		}
+//	}
 }

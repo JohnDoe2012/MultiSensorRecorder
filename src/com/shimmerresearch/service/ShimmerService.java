@@ -49,11 +49,14 @@ import com.shimmerresearch.android.Shimmer;
 import com.shimmerresearch.driver.*;
 import com.shimmerresearch.tools.Logging;
 
+import android.app.Notification;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
@@ -74,6 +77,8 @@ public class ShimmerService extends Service {
 	private Handler mHandlerGraph=null;
 	private boolean mGraphing=false;
 	private String mLogFileName="Default";
+	private Context mContext;
+	private String mOperatingDevice = "";
 	
 	@Override
 	public IBinder onBind(Intent intent) {
@@ -98,15 +103,14 @@ public class ShimmerService extends Service {
         Log.d("LocalService", "Received start id " + startId + ": " + intent);
         // We want this service to continue running until it is explicitly
         // stopped, so return sticky.
+        mContext = this.getApplicationContext();
         return START_STICKY;
     }
     
 	@Override
 	public void onStart(Intent intent, int startid) {
 		Toast.makeText(this, "My Service Started", Toast.LENGTH_LONG).show();
-
 		Log.d(TAG, "onStart");
-
 	}
 	
 	/**
@@ -447,13 +451,42 @@ public class ShimmerService extends Service {
 		return status;
 	}
 	
-	public boolean closeAndRemoveFile(String bluetoothAddress){
-		if (mEnableLogging==true && mLogShimmer.get(bluetoothAddress)!=null){
-			mLogShimmer.get(bluetoothAddress).closeFile();
+	/**
+	 * JD: stop and close log files for selected devices, and update the UI
+	 * @param bluetoothAddress selected device
+	 * @return true if log file is closed, false otherwise
+	 */
+	public boolean closeAndRemoveFile(String bluetoothAddress){		
+		Logging mLogger = mLogShimmer.get(bluetoothAddress);
+		if (mEnableLogging==true && mLogger!=null){
+			while(mLogger.getQueueSize()>0){
+				Message msg = mHandlerGraph.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
+		        Bundle bundle = new Bundle();
+		        bundle.putBoolean("Streaming Stopped", false);
+		        bundle.putString("Bluetooth Address", bluetoothAddress);
+		        bundle.putInt("Queue Size Remaining", mLogger.getQueueSize());
+		        msg.setData(bundle);
+		        mHandlerGraph.sendMessage(msg);
+			}
+			mLogger.closeFile();
 			mLogShimmer.remove(bluetoothAddress);
+			/* DONE, inform UI */
+			Message msg = mHandlerGraph.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
+	        Bundle bundle = new Bundle();
+	        bundle.putBoolean("Streaming Stopped", true);
+	        bundle.putString("Bluetooth Address", bluetoothAddress);
+	        msg.setData(bundle);
+	        mHandlerGraph.sendMessage(msg);
 			return true;
 		}
 		return false;
+	}
+	
+	private class CloseFileTask extends AsyncTask<String, Void, Boolean>{
+		@Override
+		protected Boolean doInBackground(String... arg0) {
+			return closeAndRemoveFile(arg0[0]);
+		}
 	}
 	
 	public void setEnableLogging(boolean enableLogging){
@@ -469,6 +502,14 @@ public class ShimmerService extends Service {
 		mLogFileName=name;
 	}
 	
+	/**
+	 * JD: set the device currently selected in UI
+	 * @param bluetoothAddress address of selected device
+	 */
+	public void setOperatingDevice(String bluetoothAddress){
+	    mOperatingDevice = bluetoothAddress;
+	}
+		
 	public final Handler mHandler = new Handler() {
 		public void handleMessage(Message msg) {
 			switch (msg.what) { // handlers have a what identifier which is used to identify the type of msg
@@ -478,24 +519,30 @@ public class ShimmerService extends Service {
 						if (mEnableLogging==true){
 							shimmerLog1= (Logging)mLogShimmer.get(objectCluster.mBluetoothAddress);
 							if (shimmerLog1!=null){
-								shimmerLog1.logData(objectCluster);
+								shimmerLog1.appendData(objectCluster);
 							} else {
 								char[] bA=objectCluster.mBluetoothAddress.toCharArray();
-		            			Logging shimmerLog;
+								String logfileName;
 		            			if (mLogFileName.equals("Default")){
-		            				shimmerLog=new Logging(Long.toString(System.currentTimeMillis()) + "_" + bA[12] + bA[13] + bA[15] + bA[16],"\t");
+		            				logfileName = Long.toString(System.currentTimeMillis())+
+            								"_"+bA[12]+bA[13]+bA[15]+bA[16]+"_st";
 		            			} else {
-		            				shimmerLog=new Logging(Long.toString(System.currentTimeMillis()) + mLogFileName,"\t");
+		            				logfileName = Long.toString(System.currentTimeMillis())+
+            								"_"+mLogFileName;
 		            			}
+		            			Logging shimmerLog = new Logging(logfileName, ",", mContext);
 		            			mLogShimmer.remove(objectCluster.mBluetoothAddress);
 		            			if (mLogShimmer.get(objectCluster.mBluetoothAddress)==null){
 		            				mLogShimmer.put(objectCluster.mBluetoothAddress,shimmerLog); 
 		            			}
+		            			shimmerLog.setStreamState(true);
 							}
 						}
 						if (mGraphing==true){
-	            		   Log.d("ShimmerGraph","Sending");
-	            		   mHandlerGraph.obtainMessage(Shimmer.MESSAGE_READ, objectCluster).sendToTarget();
+							if(mOperatingDevice.equals(objectCluster.mBluetoothAddress)){
+								Log.d("ShimmerGraph","Sending");
+								mHandlerGraph.obtainMessage(Shimmer.MESSAGE_READ, objectCluster).sendToTarget();
+							}
 						} 
 	            	}
 	                break;
@@ -534,7 +581,8 @@ public class ShimmerService extends Service {
 					String address =  msg.getData().getString("Bluetooth Address");
 					boolean stop  =  msg.getData().getBoolean("Stop Streaming");
 					if (stop==true ){
-						closeAndRemoveFile(address);
+						CloseFileTask closeTask = new CloseFileTask();
+               		 	closeTask.execute(address);
 					}
                 	break;
 			}
