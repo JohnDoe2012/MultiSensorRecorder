@@ -27,8 +27,7 @@ import android.util.Log;
 public class PhoneDevice implements SensorEventListener{
 	private static final String TAG = "LOCAL";
 	public static final int SAMPLING_INTRVL = 20; 	//ms
-	private static final int PREPARE_INTRVL = 30000; //ms
-	private static final int SENSOR_BARO = 0x100;
+	public static final int SENSOR_BARO = 0x100;
 	
 	private Context mContext;
 	private Handler mHandler;
@@ -45,7 +44,7 @@ public class PhoneDevice implements SensorEventListener{
 	private float bufGyro[];
 	private float bufBaro[];
 	private long mSamplingRate = SAMPLING_INTRVL;	//ms
-	private boolean isFirst = false;
+//	private boolean isFirst = false;
 	
 	/**
 	 * Constructor
@@ -150,9 +149,9 @@ public class PhoneDevice implements SensorEventListener{
 	public void startStreaming(){
 		if(mState==Shimmer.MSG_STATE_FULLY_INITIALIZED){
 //			startTimer(mSensorTimer, new SensorSampleTask(), 10, mSamplingRate);
-			startScheduler(mSensorScheduler, new SensorSampleSchedule(), PREPARE_INTRVL, mSamplingRate);
+			startScheduler(mSensorScheduler, new SensorSampleSchedule(), 0, mSamplingRate);
 			setState(Shimmer.MSG_STATE_STREAMING);
-			isFirst = true;
+//			isFirst = true;
 		}
 	}
 	
@@ -224,11 +223,11 @@ public class PhoneDevice implements SensorEventListener{
 	}
 	
 	/**
-	 * Get sampling rate
+	 * Get sampling rate (in Hz)
 	 * @return current sampling rate
 	 */
 	public long getSamplingRate(){
-		return mSamplingRate;
+		return 1000/mSamplingRate;
 	}
 	
 	/**
@@ -321,27 +320,27 @@ public class PhoneDevice implements SensorEventListener{
 		public void run() {
 			if(mState==Shimmer.MSG_STATE_STREAMING){
 				mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildData()).sendToTarget();
-				if(isFirst){
-					beep();
-					isFirst = false;
-				}
+//				if(isFirst){
+//					beep();
+//					isFirst = false;
+//				}
 			}
 		}
 	}
 	
-	/**
-	 * Play a sound indicating the start of logging
-	 */
-	private void beep(){
-		try {
-		    Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-		    Ringtone r = RingtoneManager.getRingtone(mContext, notification);
-		    r.play();
-		} catch (Exception e) {
-		    e.printStackTrace();
-		}
-	}
-	
+//	/**
+//	 * Play a sound indicating the start of logging
+//	 */
+//	private void beep(){
+//		try {
+//		    Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+//		    Ringtone r = RingtoneManager.getRingtone(mContext, notification);
+//		    r.play();
+//		} catch (Exception e) {
+//		    e.printStackTrace();
+//		}
+//	}
+//	
 //	
 //	/**
 //	 * Helper function that starts a timer

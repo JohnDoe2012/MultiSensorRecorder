@@ -48,20 +48,27 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.PowerManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ContextMenu.ContextMenuInfo;
 import android.view.View.OnClickListener;
 import android.view.Window;
 import android.view.WindowManager.LayoutParams;
 import android.widget.AdapterView;
+import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -80,7 +87,8 @@ import com.shimmerresearch.tools.Logging;
 //import android.graphics.Matrix;
 
 public class ShimmerGraphandLogService extends ServiceActivity {
-
+	private static final String TAG = "MainActivity";
+	private static final int PREPARE_INTRVL = 30000; //ms
 	private static Context context;
 	static final int REQUEST_ENABLE_BT = 1;
 	static final int REQUEST_CONNECT_SHIMMER = 2;
@@ -119,11 +127,15 @@ public class ShimmerGraphandLogService extends ServiceActivity {
     private String mSignaltoGraph;
     private static String mSensorView = ""; //The sensor device which should be viewed on the graph
     private static int mGraphSubSamplingCount = 0; //10 
-    private static String mFileName = "myFirstDataSet";
-    static Logging log = new Logging(mFileName,"\t"); //insert file name
+    private static String mSubjectName = "Default";
+    //static Logging log = new Logging(mFileName,"\t"); //insert file name
     private static boolean mEnableLogging = false;
     Dialog mDialog;
     int dialogEnabledSensors=0;
+    
+    //continuously recording
+    private PowerManager pm;
+    private PowerManager.WakeLock wl;
     
     /** Called when the activity is first created. */
     @Override
@@ -204,6 +216,9 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	    	 break;
 		 }
 		 
+	     // keep awake
+	        pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+	        wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"CPU on");
 		 if (!isMyServiceRunning())
 	      {
 	      	Log.d("ShimmerH","Oncreate2");
@@ -215,6 +230,8 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	  			mServiceFirstTime=false;
 	  		}
 	      	mTitle.setText(R.string.title_not_connected); // if no service is running means no devices are connected
+	      //wake lock started
+	      	wl.acquire();
 	      }         
 //		 
 //	      if (mBluetoothAddress!=null){
@@ -238,7 +255,6 @@ public class ShimmerGraphandLogService extends ServiceActivity {
         }
         
         ShimmerGraphandLogService.context = getApplicationContext();
- 
     }
     
     @Override
@@ -283,7 +299,9 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	}
 	
 	@Override
-	protected void onDestroy() {		
+	protected void onDestroy() {
+		mService.onDestroy();
+		wl.release();
 		super.onDestroy();
 		Log.d("ShimmerActivity","On Destroy");
 	}
@@ -307,263 +325,325 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	    };
 	
 	
-	// The Handler that gets information back from the BluetoothChatService
-    private static Handler mHandler = new Handler() {
-   
-
+	// JD: The Handler that gets information back from the BluetoothChatService and ShimmerService
+	private static Handler mHandler = new Handler() {
 		public void handleMessage(Message msg) {
 			switch (msg.what) {
-            
-            case Shimmer.MESSAGE_STATE_CHANGE:
-                switch (msg.arg1) {
-                case Shimmer.STATE_CONNECTED:
-                	//this has been deprecated
-                	/*Log.d("ShimmerActivity","ms1");
-                    mTitle.setText(R.string.title_connected_to);
-                    mBluetoothAddress=((ObjectCluster)msg.obj).mBluetoothAddress;
-                    mTitle.append(mBluetoothAddress);    
-                    mService.enableGraphingHandler(true);*/
-                    break;
-                case Shimmer.MSG_STATE_FULLY_INITIALIZED:
-                	Log.d("ShimmerActivity","Message Fully Initialized Received from Shimmer driver");
-                	/* JD: new device connected, add it to connected device list */
-                    mNewConnectedDeviceAddr=((ObjectCluster)msg.obj).mBluetoothAddress;
-                    String devName = ((ObjectCluster)msg.obj).mMyName;
-                    if(devName.equalsIgnoreCase("Device")){
-                    	mService.setDeviceName(mNewConnectedDeviceAddr, 
-                    			mNewConnectedDeviceAddr.substring(12, 17).replace(":", ""));
-                    }
-                    devName = mService.getDeviceName(mNewConnectedDeviceAddr);
-                    String dispDevice = devName+"\n"+mNewConnectedDeviceAddr;
-                    String dispState = "Log ";
-                    if(mService.getEnableLogging(mNewConnectedDeviceAddr)){
-                    	dispState += "ON ";
-                    }else{
-                    	dispState += "OFF ";
-                    }
-                    dispState += "\nConnected";
-                    HashMap<String, String> map = new HashMap<String, String>();
-                    map.put("device_cell", dispDevice);
-                    map.put("state_cell", dispState);
-                    mConnectedDeviceLists.add(map);
-                    mConnectedDeviceAdapters.notifyDataSetChanged();
-                    mTitle.setText(R.string.title_connected_to);
-                    mTitle.append(" "+mService.DevicesConnectedCount()+" Devices");    
-                    mService.enableGraphingHandler(true);
-                    break;
-                case Shimmer.STATE_CONNECTING:
-                	Log.d("ShimmerActivity","Driver is attempting to establish connection with Shimmer device");
-                    mTitle.setText(R.string.title_connecting);
-                    break;
-                case Shimmer.STATE_NONE:
-                	Log.d("ShimmerActivity","Shimmer No State");
-                    mTitle.setText(R.string.title_not_connected);;
-                    mBluetoothAddress=null;
-                    // this also stops streaming
-                    break;
-                }
-                break;
-            case Shimmer.MESSAGE_READ:
-
+				case Shimmer.MESSAGE_STATE_CHANGE:
+					switch (msg.arg1) {
+						case Shimmer.STATE_CONNECTED:
+		                	//this has been deprecated
+		                	/*Log.d("ShimmerActivity","ms1");
+		                    mTitle.setText(R.string.title_connected_to);
+		                    mBluetoothAddress=((ObjectCluster)msg.obj).mBluetoothAddress;
+		                    mTitle.append(mBluetoothAddress);    
+		                    mService.enableGraphingHandler(true);*/
+							break;
+						case Shimmer.MSG_STATE_FULLY_INITIALIZED:
+							Log.d("ShimmerActivity","Message Fully Initialized Received from Shimmer driver");
+							/* JD: new device connected, add it to connected device list */
+							mNewConnectedDeviceAddr=((ObjectCluster)msg.obj).mBluetoothAddress;
+							boolean isNew = true;
+							for(int i = 0; i < mConnectedDeviceList.size(); i++){
+								if(mConnectedDeviceList.get(i).get("device_cell").contains(mNewConnectedDeviceAddr)){
+									isNew = false;
+									break;
+								}
+							}
+							if(isNew){
+								String devName = ((ObjectCluster)msg.obj).mMyName;
+								if(devName.equalsIgnoreCase("Device")){
+									/* they are shimmers, give them some alias */
+									mService.setDeviceName(mNewConnectedDeviceAddr, 
+	                    			mNewConnectedDeviceAddr.substring(12, 17).replace(":", ""));
+								}
+								/* select the new device */ 
+								mSelectedDeviceName = mService.getDeviceName(mNewConnectedDeviceAddr);
+								mSelectedDeviceAddr = mNewConnectedDeviceAddr;
+										
+								/* refresh connected list */
+								String dispDevice = devName+"\n"+mNewConnectedDeviceAddr;
+								String dispState = (mService.getEnableLogging())?"LOG Enabled":"Log Disabled";
+								dispState += "\nConnected";
+								HashMap<String, String> map = new HashMap<String, String>();
+								map.put("device_cell", dispDevice);
+								map.put("state_cell", dispState);
+								mConnectedDeviceList.add(map);
+								mConnectedDeviceAdapters.notifyDataSetChanged();
+								/* refresh connected count */
+								mTitle.setText(R.string.title_connected_to);
+								mTitle.append(" "+mService.getDevicesConnectedCount()+" Devices");    
+	                    		mService.enableGraphingHandler(true);
+							}
+                    		break;
+						case Shimmer.STATE_CONNECTING:
+							Log.d("ShimmerActivity","Driver is attempting to establish connection with Shimmer device");
+							mTitle.setText(R.string.title_connecting);
+							break;
+						case Shimmer.MSG_STATE_STREAMING:
+							String address = ((ObjectCluster)msg.obj).mBluetoothAddress;
+							/* refresh UI */
+							for(int i = 0; i < mConnectedDeviceList.size(); i++){
+								if(mConnectedDeviceList.get(i).get("device_cell").contains(address)){
+									String newDispState = mConnectedDeviceList.get(i).get("state_cell").split("\n")[0] + "\nStreaming";
+									mConnectedDeviceList.get(i).put("state_cell", newDispState);
+									mConnectedDeviceAdapters.notifyDataSetChanged();
+									break;
+								}
+							}
+							break;
+						case Shimmer.STATE_NONE:
+							Log.d("ShimmerActivity","Shimmer No State");
+							int i = 0;
+							for(i = 0; i < mConnectedDeviceList.size(); i++){
+								if(mConnectedDeviceList.get(i).get("device_cell").
+										contains(((ObjectCluster)msg.obj).mBluetoothAddress)){
+									mConnectedDeviceList.remove(i);
+									mConnectedDeviceAdapters.notifyDataSetChanged();
+									break;
+								}
+							}
+							if(mConnectedDeviceList.size()>0){
+								/* re-select first device in the list */
+								mNewConnectedDeviceAddr = null;
+								mSelectedDeviceAddr = 
+									mConnectedDeviceList.get(0).get("device_cell").split("\n")[1];
+								mSelectedDeviceName = mService.getDeviceName(mSelectedDeviceAddr);
+							}else{
+								mNewConnectedDeviceAddr = null;
+								mSelectedDeviceAddr = null;
+								mSelectedDeviceName = null;
+							}
+							/* refresh connected count */
+							mTitle.setText(R.string.title_connected_to);
+							mTitle.append(" "+mService.getDevicesConnectedCount()+" Devices");
+							// this also stops streaming
+							break;
+					}
+					break;
+				case Shimmer.MESSAGE_STOP_STREAMING_COMPLETE:
+					String address =  msg.getData().getString("Bluetooth Address");
+					boolean stop  =  msg.getData().getBoolean("Streaming Stopped");
+					int queue = stop ? 0 : msg.getData().getInt("Queue Size Remaining");
+					/* refresh UI */
+					for(int i = 0; i < mConnectedDeviceList.size(); i++){
+						if(mConnectedDeviceList.get(i).get("device_cell").contains(address)){
+							String newDispState = mConnectedDeviceList.get(i).get("state_cell").split("\n")[0];
+							if(queue>0){
+								newDispState += "\nWrite Log Remaining "+queue;
+							}else{
+								newDispState += "\nConnected";
+							}
+							mConnectedDeviceList.get(i).put("state_cell", newDispState);
+							mConnectedDeviceAdapters.notifyDataSetChanged();
+							break;
+						}
+					}
+					break;
+				case Shimmer.MESSAGE_READ:
             	    if ((msg.obj instanceof ObjectCluster)){
-            	    ObjectCluster objectCluster =  (ObjectCluster) msg.obj; 
-            	    Log.d("ShimmerActivity","MSGREAD");
-            	   
-            	
-            		int[] dataArray = new int[0];
-            		double[] calibratedDataArray = new double[0];
-            		String[] sensorName = new String[0];
-            		String units="";
-            		String calibratedUnits="";
-            		String calibratedUnits2="";
-            		//mSensorView determines which sensor to graph
-            		if (mSensorView.equals("Accelerometer")){
-            			sensorName = new String[3]; // for x y and z axis
-            			dataArray = new int[3];
-            			calibratedDataArray = new double[3];
-            			sensorName[0] = "Accelerometer X";
-            			sensorName[1] = "Accelerometer Y";
-            			sensorName[2] = "Accelerometer Z";
-            			if (mService.getShimmerVersion(mBluetoothAddress)==Shimmer.SHIMMER_3){
-            				if (mService.getAccelRange(mBluetoothAddress)==0){
-            					units="u12"; // units are just merely an indicator to correct the graph
-            				} else {
-            					units="i16";
-            				}
-            			} else {
-            				units="u12";
-            			}
-            		}
-            		if (mSensorView.equals("Low Noise Accelerometer")){
-            			sensorName = new String[3]; // for x y and z axis
-            			dataArray = new int[3];
-            			calibratedDataArray = new double[3];
-            			sensorName[0] = "Low Noise Accelerometer X";
-            			sensorName[1] = "Low Noise Accelerometer Y";
-            			sensorName[2] = "Low Noise Accelerometer Z";
-            			units="u12"; // units are just merely an indicator to correct the graph
-            			
-            		}
-            		if (mSensorView.equals("Wide Range Accelerometer")){
-            			sensorName = new String[3]; // for x y and z axis
-            			dataArray = new int[3];
-            			calibratedDataArray = new double[3];
-            			sensorName[0] = "Wide Range Accelerometer X";
-            			sensorName[1] = "Wide Range Accelerometer Y";
-            			sensorName[2] = "Wide Range Accelerometer Z";
-            			units="i16";
-            		}
-            		if (mSensorView.equals("Gyroscope")){
-            			sensorName = new String[3]; // for x y and z axis
-            			dataArray = new int[3];
-            			calibratedDataArray = new double[3];
-            			sensorName[0] = "Gyroscope X";
-            			sensorName[1] = "Gyroscope Y";
-            			sensorName[2] = "Gyroscope Z";
-            			units="i16";
-            		}
-            		if (mSensorView.equals("Magnetometer")){
-            			sensorName = new String[3]; // for x y and z axis
-            			dataArray = new int[3];
-            			calibratedDataArray = new double[3];
-            			sensorName[0] = "Magnetometer X";
-            			sensorName[1] = "Magnetometer Y";
-            			sensorName[2] = "Magnetometer Z";
-            			units="i12";
-            		}
-            		if (mSensorView.equals("GSR")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "GSR";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("EMG")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "EMG";
-            			units="u12";
-            		}
-            		if (mSensorView.equals("ECG")){
-            			sensorName = new String[2]; 
-            			dataArray = new int[2];
-            			calibratedDataArray = new double[2];
-            			sensorName[0] = "ECG RA-LL";
-            			sensorName[1] = "ECG LA-LL";
-            			units="u12";
-            		}
-            		if (mSensorView.equals("Strain Gauge")){
-            			sensorName = new String[2]; 
-            			dataArray = new int[2];
-            			calibratedDataArray = new double[2];
-            			sensorName[0] = "Strain Gauge High";
-            			sensorName[1] = "Strain Gauge Low";
-            			units="u12";
-            		}
-            		if (mSensorView.equals("Heart Rate")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "Heart Rate";
-            			units="u8";
-            			if (mService.getFWVersion(mBluetoothAddress)>0.1){
-            				units="u16";
-            			}
-            		}
-            		if (mSensorView.equals("ExpBoardA0")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "ExpBoard A0";
-            			units="u12";
-            		}
-            		if (mSensorView.equals("ExpBoardA7")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "ExpBoard A7";
-            			units="u12";
-            		}
-            		if (mSensorView.equals("Battery Voltage")){
-            			sensorName = new String[2]; 
-            			dataArray = new int[2];
-            			calibratedDataArray = new double[2];
-            			sensorName[0] = "VSenseReg";
-            			sensorName[1] = "VSenseBatt";
-            			units="u12";
-            		}
-            		if (mSensorView.equals("Timestamp")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "Timestamp";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("External ADC A7")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "External ADC A7";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("External ADC A6")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "External ADC A6";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("External ADC A15")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "External ADC A15";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("Internal ADC A1")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "Internal ADC A1";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("Internal ADC A12")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "Internal ADC A12";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("Internal ADC A13")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "Internal ADC A13";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("Internal ADC A14")){
-            			sensorName = new String[1]; 
-            			dataArray = new int[1];
-            			calibratedDataArray = new double[1];
-            			sensorName[0] = "Internal ADC A14";
-            			units="u16";
-            		}
-            		if (mSensorView.equals("Pressure")){
-            			sensorName = new String[2]; 
-            			dataArray = new int[2];
-            			calibratedDataArray = new double[2];
-            			sensorName[0] = "Pressure";
-            			sensorName[1] = "Temperature";
-            			units="u16";
-            		}
-            		String deviceName = objectCluster.mMyName;
-            		//log data
-            	    
+            	    	ObjectCluster objectCluster =  (ObjectCluster) msg.obj; 
+            	    	Log.d("ShimmerActivity","MSGREAD");
+
+            	    	int[] dataArray = new int[0];
+            	    	double[] calibratedDataArray = new double[0];
+            	    	String[] sensorName = new String[0];
+            	    	String units="";
+            	    	String calibratedUnits="";
+            	    	String calibratedUnits2="";
             		
+            	    	//mSensorView determines which sensor to graph
+            	    	if (mSensorView.equals("Accelerometer")){
+            	    		sensorName = new String[3]; // for x y and z axis
+            	    		dataArray = new int[3];
+	            			calibratedDataArray = new double[3];
+	            			sensorName[0] = "Accelerometer X";
+	            			sensorName[1] = "Accelerometer Y";
+	            			sensorName[2] = "Accelerometer Z";
+	            			if (mService.getShimmerVersion(mSelectedDeviceAddr)==Shimmer.SHIMMER_3){
+	            				if (mService.getAccelRange(mSelectedDeviceAddr)==0){
+	            					units="u12"; // units are just merely an indicator to correct the graph
+	            				} else {
+	            					units="i16";
+	            				}
+	            			} else {
+	            				units="u12";
+	            			}
+            	    	}
+	            		if (mSensorView.equals("Low Noise Accelerometer")){
+	            			sensorName = new String[3]; // for x y and z axis
+	            			dataArray = new int[3];
+	            			calibratedDataArray = new double[3];
+	            			sensorName[0] = "Low Noise Accelerometer X";
+	            			sensorName[1] = "Low Noise Accelerometer Y";
+	            			sensorName[2] = "Low Noise Accelerometer Z";
+	            			units="u12"; // units are just merely an indicator to correct the graph
+	            		}
+	            		if (mSensorView.equals("Wide Range Accelerometer")){
+	            			sensorName = new String[3]; // for x y and z axis
+	            			dataArray = new int[3];
+	            			calibratedDataArray = new double[3];
+	            			sensorName[0] = "Wide Range Accelerometer X";
+	            			sensorName[1] = "Wide Range Accelerometer Y";
+	            			sensorName[2] = "Wide Range Accelerometer Z";
+	            			units="i16";
+	            		}
+	            		if (mSensorView.equals("Gyroscope")){
+	            			sensorName = new String[3]; // for x y and z axis
+	            			dataArray = new int[3];
+	            			calibratedDataArray = new double[3];
+	            			sensorName[0] = "Gyroscope X";
+	            			sensorName[1] = "Gyroscope Y";
+	            			sensorName[2] = "Gyroscope Z";
+	            			units="i16";
+	            		}
+	            		if (mSensorView.equals("Magnetometer")){
+	            			sensorName = new String[3]; // for x y and z axis
+	            			dataArray = new int[3];
+	            			calibratedDataArray = new double[3];
+	            			sensorName[0] = "Magnetometer X";
+	            			sensorName[1] = "Magnetometer Y";
+	            			sensorName[2] = "Magnetometer Z";
+	            			units="i12";
+	            		}
+	            		if (mSensorView.equals("Barometer")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Barometer";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("GSR")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "GSR";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("EMG")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "EMG";
+	            			units="u12";
+	            		}
+	            		if (mSensorView.equals("ECG")){
+	            			sensorName = new String[2]; 
+	            			dataArray = new int[2];
+	            			calibratedDataArray = new double[2];
+	            			sensorName[0] = "ECG RA-LL";
+	            			sensorName[1] = "ECG LA-LL";
+	            			units="u12";
+	            		}
+	            		if (mSensorView.equals("Strain Gauge")){
+	            			sensorName = new String[2]; 
+	            			dataArray = new int[2];
+	            			calibratedDataArray = new double[2];
+	            			sensorName[0] = "Strain Gauge High";
+	            			sensorName[1] = "Strain Gauge Low";
+	            			units="u12";
+	            		}
+	            		if (mSensorView.equals("Heart Rate")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Heart Rate";
+	            			units="u8";
+	            			if (mService.getFWVersion(mSelectedDeviceAddr)>0.1){
+	            				units="u16";
+	            			}
+	            		}
+	            		if (mSensorView.equals("ExpBoardA0")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "ExpBoard A0";
+	            			units="u12";
+	            		}
+	            		if (mSensorView.equals("ExpBoardA7")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "ExpBoard A7";
+	            			units="u12";
+	            		}
+	            		if (mSensorView.equals("Battery Voltage")){
+	            			sensorName = new String[2]; 
+	            			dataArray = new int[2];
+	            			calibratedDataArray = new double[2];
+	            			sensorName[0] = "VSenseReg";
+	            			sensorName[1] = "VSenseBatt";
+	            			units="u12";
+	            		}
+	            		if (mSensorView.equals("Timestamp")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Timestamp";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("External ADC A7")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "External ADC A7";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("External ADC A6")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "External ADC A6";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("External ADC A15")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "External ADC A15";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("Internal ADC A1")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Internal ADC A1";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("Internal ADC A12")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Internal ADC A12";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("Internal ADC A13")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Internal ADC A13";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("Internal ADC A14")){
+	            			sensorName = new String[1]; 
+	            			dataArray = new int[1];
+	            			calibratedDataArray = new double[1];
+	            			sensorName[0] = "Internal ADC A14";
+	            			units="u16";
+	            		}
+	            		if (mSensorView.equals("Pressure")){
+	            			sensorName = new String[2]; 
+	            			dataArray = new int[2];
+	            			calibratedDataArray = new double[2];
+	            			sensorName[0] = "Pressure";
+	            			sensorName[1] = "Temperature";
+	            			units="u16";
+	            		}
+	            		String deviceName = objectCluster.mMyName;
+	            		//log data
+
             		if (sensorName.length!=0){  // Device 1 is the assigned user id, see constructor of the Shimmer
 				 	    if (sensorName.length>0){
-				 	    	
 				 	    	Collection<FormatCluster> ofFormats = objectCluster.mPropertyCluster.get(sensorName[0]);  // first retrieve all the possible formats for the current sensor device
 				 	    	FormatCluster formatCluster = ((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"CAL")); 
 				 	    	if (formatCluster != null) {
@@ -572,10 +652,11 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 				 	    		calibratedUnits = formatCluster.mUnits;
 				 	    		Log.d("ShimmerActivity","MSGREAD2");
 				 	    		//Obtain data for graph
-					 	    	
-						 	 	dataArray[0] = (int)((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"RAW")).mData; 
-						 	 	
-					 	    	
+				 	    		if(objectCluster.mBluetoothAddress.equalsIgnoreCase(ShimmerService.LOCAL_DEVICE_ADDR)){
+					 	    		dataArray[0] = (int) (calibratedDataArray[0]*10);
+					 	    	}else{
+					 	    		dataArray[0] = (int)((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"RAW")).mData; 
+					 	    	}
 					 	    }
 				 	    }
 				 	    if (sensorName.length>1) {
@@ -586,73 +667,66 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 					 	    	//Obtain data for text view
 					 	    	calibratedUnits2 = formatCluster.mUnits;
 					 	    	//Obtain data for graph
-					 	    	dataArray[1] =(int) ((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"RAW")).mData; 
-					 	    	
-
+					 	    	if(objectCluster.mBluetoothAddress.equalsIgnoreCase(ShimmerService.LOCAL_DEVICE_ADDR)){
+					 	    		dataArray[1] = (int) (calibratedDataArray[1]*10);
+					 	    	}else{
+					 	    		dataArray[1] = (int)((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"RAW")).mData; 
+					 	    	}
 				 	    	}
 				 	    }
 				 	    if (sensorName.length>2){
-				 	    
 				 	    	Collection<FormatCluster> ofFormats = objectCluster.mPropertyCluster.get(sensorName[2]);  // first retrieve all the possible formats for the current sensor device
 				 	    	FormatCluster formatCluster = ((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"CAL")); 
 				 	    	if (formatCluster != null) {
 				 	    		calibratedDataArray[2] = formatCluster.mData;
-					 	    	
-					 	   	    
 				 	    		//Obtain data for graph
-				 	    		dataArray[2] =(int) ((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"RAW")).mData; 
-					 	    	
+				 	    		if(objectCluster.mBluetoothAddress.equalsIgnoreCase(ShimmerService.LOCAL_DEVICE_ADDR)){
+					 	    		dataArray[2] = (int) (calibratedDataArray[2]*10);
+					 	    	}else{
+					 	    		dataArray[2] = (int)((FormatCluster)ObjectCluster.returnFormatCluster(ofFormats,"RAW")).mData; 
+					 	    	}
 				 	    	}
-				 	    	
 			            }
-				 	   
-				 	    
+
 				 	    //in order to prevent LAG the number of data points plotted is REDUCED
 				 	    int maxNumberofSamplesPerSecond=50; //Change this to increase/decrease the number of samples which are graphed
 				 	    int subSamplingCount=0;
-				 	    if (mService.getSamplingRate(mBluetoothAddress)>maxNumberofSamplesPerSecond){
-				 	    	subSamplingCount=(int) (mService.getSamplingRate(mBluetoothAddress)/maxNumberofSamplesPerSecond);
+				 	    if (mService.getSamplingRate(objectCluster.mBluetoothAddress)>maxNumberofSamplesPerSecond){
+				 	    	subSamplingCount=(int) (mService.getSamplingRate(objectCluster.mBluetoothAddress)/maxNumberofSamplesPerSecond);
 				 	    	mGraphSubSamplingCount++;
 				 	    	Log.d("SSC",Integer.toString(subSamplingCount));
 				 	    }
 				 	    if (mGraphSubSamplingCount==subSamplingCount){
 				 	    	mGraph.setDataWithAdjustment(dataArray,"Shimmer : " + deviceName,units);
-				 	    	mTVPRR.setText("PRR : "+String.format("%.2f", mService.getPacketReceptionRate(mBluetoothAddress))+ "%");
-						if (calibratedDataArray.length>0) {
-							mValueSensor1.setText(String.format("%.4f",calibratedDataArray[0]));
-							mTextSensor1.setText(sensorName[0] + "("+calibratedUnits+")");
-						}
-						if (calibratedDataArray.length>1) {
-							mValueSensor2.setText(String.format("%.4f",calibratedDataArray[1]));
-							mTextSensor2.setText(sensorName[1] + "("+calibratedUnits2+")");
-						}
-						if (calibratedDataArray.length>2) {
-							mValueSensor3.setText(String.format("%.4f",calibratedDataArray[2]));
-							mTextSensor3.setText(sensorName[2] + "("+calibratedUnits+")");
-						}
-							        			
-						mGraphSubSamplingCount=0;
+				 	    	mTVPRR.setText("PRR : "+String.format("%.2f", mService.getPacketReceptionRate(objectCluster.mBluetoothAddress))+ "%");
+							if (calibratedDataArray.length>0) {
+								mValueSensor1.setText(String.format("%.4f",calibratedDataArray[0]));
+								mTextSensor1.setText(sensorName[0] + "("+calibratedUnits+")");
+							}
+							if (calibratedDataArray.length>1) {
+								mValueSensor2.setText(String.format("%.4f",calibratedDataArray[1]));
+								mTextSensor2.setText(sensorName[1] + "("+calibratedUnits2+")");
+							}
+							if (calibratedDataArray.length>2) {
+								mValueSensor3.setText(String.format("%.4f",calibratedDataArray[2]));
+								mTextSensor3.setText(sensorName[2] + "("+calibratedUnits+")");
+							}	        			
+							mGraphSubSamplingCount=0;
 				 	    }
 					}
             	}
-				
                 break;
             case Shimmer.MESSAGE_ACK_RECEIVED:
-            	
             	break;
             case Shimmer.MESSAGE_DEVICE_NAME:
                 // save the connected device's name
-                
                 Toast.makeText(getContext(), "Connected to "
-                               + mBluetoothAddress, Toast.LENGTH_SHORT).show();
+                               + mNewConnectedDeviceAddr, Toast.LENGTH_SHORT).show();
                 break;
-       
-            	
             case Shimmer.MESSAGE_TOAST:
                 Toast.makeText(getContext(), msg.getData().getString(Shimmer.TOAST),
                                Toast.LENGTH_SHORT).show();
                 break;
-           
             }
         }
     };
@@ -662,12 +736,10 @@ public class ShimmerGraphandLogService extends ServiceActivity {
     }
     
 	public void onActivityResult(int requestCode, int resultCode, Intent data) {
-		
-    	switch (requestCode) {
+		switch (requestCode) {
     	case REQUEST_ENABLE_BT:
             // When the request to enable Bluetooth returns
             if (resultCode == Activity.RESULT_OK) {
-            	
                 //setMessage("\nBluetooth is now enabled");
                 Toast.makeText(this, "Bluetooth is now enabled", Toast.LENGTH_SHORT).show();
             } else {
@@ -683,7 +755,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
                         .getString(DeviceListActivity.EXTRA_DEVICE_ADDRESS);
                 Log.d("ShimmerActivity",address);
           		mService.connectShimmer(address, "Device");
-          		mBluetoothAddress = address;
+          		mSelectedDeviceAddr = address;
           		mService.setGraphHandler(mHandler);
                 
                 //mShimmerDevice.connect(address,"gerdavax");
@@ -691,7 +763,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
             }
             break;
     	case REQUEST_COMMAND_SHIMMER:
-    		
+    		/* only for shimmer devices, not phone */
     		if (resultCode == Activity.RESULT_OK) {
 	    		if(data.getExtras().getBoolean("ToggleLED",false) == true)
 	    		{
@@ -700,40 +772,39 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	    		
 	    		if(data.getExtras().getDouble("SamplingRate",-1) != -1)
 	    		{
-	    			mService.writeSamplingRate(mBluetoothAddress, data.getExtras().getDouble("SamplingRate",-1));
+	    			mService.writeSamplingRate(mSelectedDeviceAddr, data.getExtras().getDouble("SamplingRate",-1));
 	    			Log.d("ShimmerActivity",Double.toString(data.getExtras().getDouble("SamplingRate",-1)));
 	    			mGraphSubSamplingCount=0;
 	    		}
 	    		
 	    		if(data.getExtras().getInt("AccelRange",-1) != -1)
 	    		{
-	    			mService.writeAccelRange(mBluetoothAddress, data.getExtras().getInt("AccelRange",-1));
+	    			mService.writeAccelRange(mSelectedDeviceAddr, data.getExtras().getInt("AccelRange",-1));
 	    		}
 	    		
 	    		if(data.getExtras().getInt("GyroRange",-1) != -1)
 	    		{
-	    			mService.writeGyroRange(mBluetoothAddress, data.getExtras().getInt("GyroRange",-1));
+	    			mService.writeGyroRange(mSelectedDeviceAddr, data.getExtras().getInt("GyroRange",-1));
 	    		}
 	    		
 	    		if(data.getExtras().getInt("PressureResolution",-1) != -1)
 	    		{
-	    			mService.writePressureResolution(mBluetoothAddress, data.getExtras().getInt("PressureResolution",-1));
+	    			mService.writePressureResolution(mSelectedDeviceAddr, data.getExtras().getInt("PressureResolution",-1));
 	    		}
 	    		
 	    		if(data.getExtras().getInt("MagRange",-1) != -1)
 	    		{
-	    			mService.writeMagRange(mBluetoothAddress, data.getExtras().getInt("MagRange",-1));
+	    			mService.writeMagRange(mSelectedDeviceAddr, data.getExtras().getInt("MagRange",-1));
 	    		}
 	    		
 	    		if(data.getExtras().getInt("GSRRange",-1) != -1)
 	    		{
-	    			mService.writeGSRRange(mBluetoothAddress,data.getExtras().getInt("GSRRange",-1));
+	    			mService.writeGSRRange(mSelectedDeviceAddr,data.getExtras().getInt("GSRRange",-1));
 	    		}
 	    		if(data.getExtras().getDouble("BatteryLimit",-1) != -1)
 	    		{
-	    			mService.setBattLimitWarning(mBluetoothAddress, data.getExtras().getDouble("BatteryLimit",-1));
+	    			mService.setBattLimitWarning(mSelectedDeviceAddr, data.getExtras().getDouble("BatteryLimit",-1));
 	    		}
-	    		
     		}
     		break;
     	case REQUEST_LOGFILE_SHIMMER:
@@ -742,85 +813,84 @@ public class ShimmerGraphandLogService extends ServiceActivity {
     			if (mEnableLogging==true){
     				mService.setEnableLogging(mEnableLogging);
     			}
+    			Log.d(TAG, "log enable is "+mEnableLogging);
     			//set the filename in the LogFile
-    			mFileName=data.getExtras().getString("LogFileName");
-    			mService.setLoggingName(mFileName);
+    			mSubjectName=data.getExtras().getString("SubjectName");
+    			mService.setLoggingName(mSubjectName);
     			
-    			if (mEnableLogging==false){
-    	        	mTitleLogging.setText("Logging Disabled");
-    	        } else if (mEnableLogging==true){
-    	        	mTitleLogging.setText("Logging Enabled");
-    	        }
-    			
+    			/* refresh UI */
+				for(int i = 0; i < mConnectedDeviceList.size(); i++){
+					String newDispState = "";
+					if (mEnableLogging==false){
+						newDispState = "LOG Disabled\n"+mConnectedDeviceList.get(i).get("state_cell").split("\n")[1];
+	    	        } else if (mEnableLogging==true){
+	    	        	newDispState = "LOG Enabled\n"+mConnectedDeviceList.get(i).get("state_cell").split("\n")[1];
+	    	        }
+					Log.d(TAG, newDispState);
+					mConnectedDeviceList.get(i).put("state_cell", newDispState);
+				}
+				mConnectedDeviceAdapters.notifyDataSetChanged();
+				mTitleLogging.setText(mSubjectName);
     		}
     		break;
         }
 	}
 	
 	@Override
+	/**
+	 * JD: new option menu
+	 */
 	public boolean onCreateOptionsMenu(Menu menu) {
 		MenuInflater inflater = getMenuInflater();
 		inflater.inflate(R.menu.options_menu, menu);
-		MenuItem streamItem = menu.findItem(R.id.stream);
-		streamItem.setEnabled(false);
-		MenuItem settingsItem = menu.findItem(R.id.settings);
-		settingsItem.setEnabled(false);
+		/* allows nothing if no device connected */
+		menu.findItem(R.id.disconnect).setEnabled(false);
+		menu.findItem(R.id.streamall).setEnabled(false);
+		menu.findItem(R.id.streamnone).setEnabled(false);
+		menu.findItem(R.id.viewsensor).setEnabled(false);
+		menu.findItem(R.id.logfile).setEnabled(true);
 		return true;
 	}
 	
 	@Override
 	public boolean onPrepareOptionsMenu(Menu menu) {
-	
 		//disable graph edit for sensors which are not enabled
-		
-		MenuItem scanItem = menu.findItem(R.id.scan);
-		MenuItem streamItem = menu.findItem(R.id.stream);
-		MenuItem settingsItem = menu.findItem(R.id.settings);
-		MenuItem commandsItem = menu.findItem(R.id.commands);
+		MenuItem disconnectItem = menu.findItem(R.id.disconnect);
+		MenuItem streamItem = menu.findItem(R.id.streamall);
+		MenuItem nstreamItem = menu.findItem(R.id.streamnone);
 		MenuItem viewItem = menu.findItem(R.id.viewsensor);
-		if((mService.DevicesConnected(mBluetoothAddress) == true)){
-			scanItem.setIcon(android.R.drawable.ic_menu_close_clear_cancel);
-			scanItem.setTitle(R.string.disconnect);
-			streamItem.setIcon(R.drawable.ic_menu_play_clip);
-			streamItem.setTitle(R.string.startstream);
-			streamItem.setEnabled(true);
-			settingsItem.setEnabled(true);
-			commandsItem.setEnabled(true);
-			viewItem.setEnabled(true);
+		MenuItem logItem = menu.findItem(R.id.logfile);
+		
+		if((mService.getDevicesConnectedCount() > 0)){
+			disconnectItem.setEnabled(true);
+		}else{
+			disconnectItem.setEnabled(false);
 		}
-		else {
-			scanItem.setIcon(android.R.drawable.ic_menu_search);
-			scanItem.setTitle(R.string.connect);
-			streamItem.setIcon(R.drawable.ic_menu_play_clip);
+		
+		if((mService.getDevicesConnectedCount() > 0)&&(mService.getDevicesStreamingCount()==0)){
+			streamItem.setEnabled(true);
+			nstreamItem.setEnabled(false);
+		}else{
 			streamItem.setEnabled(false);
-			settingsItem.setEnabled(false);
-			commandsItem.setEnabled(false);
+			if(mService.getDevicesConnectedCount() == 0){
+				nstreamItem.setEnabled(false);
+			}else{
+				nstreamItem.setEnabled(true);
+			}
+		}
+		
+		if(mService.isDevicesConnected(mSelectedDeviceAddr)){
+			viewItem.setEnabled(true);
+		}else{
 			viewItem.setEnabled(false);
 		}
-		if(mService.DeviceIsStreaming(mBluetoothAddress) == true && mService.DevicesConnected(mBluetoothAddress) == true){
-			streamItem.setIcon(R.drawable.ic_menu_stop);
-			streamItem.setTitle(R.string.stopstream);
-			
+		
+		if(mService.getDevicesStreamingCount()>0){
+			logItem.setEnabled(false);
+		}else{
+			logItem.setEnabled(true);
 		}
-		if(mService.DeviceIsStreaming(mBluetoothAddress) == false && mService.DevicesConnected(mBluetoothAddress) == true && mService.GetInstructionStatus(mBluetoothAddress)==true){
-			streamItem.setIcon(R.drawable.ic_menu_play_clip);
-			streamItem.setTitle(R.string.startstream);
-		}	
-		if (mService.GetInstructionStatus(mBluetoothAddress)==false || (mService.GetInstructionStatus(mBluetoothAddress)==false)){ 
-			streamItem.setEnabled(false);
-			settingsItem.setEnabled(false);
-			commandsItem.setEnabled(false);
-		}
-		if (mService.DeviceIsStreaming(mBluetoothAddress)){
-			settingsItem.setEnabled(false);
-			commandsItem.setEnabled(false);
-		}
-		if (mService.GetInstructionStatus(mBluetoothAddress)==false)
-		{
-			streamItem.setEnabled(false);
-			settingsItem.setEnabled(false);
-			commandsItem.setEnabled(false);
-		}
+		
 		return true;
 	}
 	
@@ -828,40 +898,39 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	public boolean onOptionsItemSelected(MenuItem item) {
 		int itemId = item.getItemId();
 		if (itemId == R.id.scan) {
-			if ((mService.DevicesConnected(mBluetoothAddress) == true)) {
+			Intent serverIntent = new Intent(this, DeviceListActivity.class);
+			startActivityForResult(serverIntent, REQUEST_CONNECT_SHIMMER);
+			return true;
+		} else if (itemId == R.id.disconnect) {
+			if ((mService.getDevicesConnectedCount() > 0)) {
 				mService.disconnectAllDevices();
-			} else {
-				Intent serverIntent = new Intent(this, DeviceListActivity.class);
-				startActivityForResult(serverIntent, REQUEST_CONNECT_SHIMMER);
+			}else{
+				Toast.makeText(getContext(), "No action required", Toast.LENGTH_SHORT).show();
 			}
 			return true;
-		} else if (itemId == R.id.stream) {
-			if (mService.DeviceIsStreaming(mBluetoothAddress) == true) {
-				mService.stopStreaming(mBluetoothAddress);
-				
-			} else {
-				mService.startStreaming(mBluetoothAddress);
-				log = new Logging(mFileName,"\t");
+		} else if (itemId == R.id.streamall) {
+			if((mService.getDevicesConnectedCount() > 0)&&(mService.getDevicesStreamingCount()==0)){
+				mHandler.postDelayed(new Runnable(){
+					@Override
+					public void run() {
+						mService.startStreamingAllDevices();
+						beep();
+					}
+				}, PREPARE_INTRVL);
+			}else{
+				Toast.makeText(getContext(), mService.getDevicesStreamingCount()+" device is already streaming", 
+						Toast.LENGTH_SHORT).show();
 			}
 			return true;
-		} else if (itemId == R.id.settings) {
-			//Intent confIntent=new Intent(this, ConfigureActivity.class);
-     		//confIntent.putExtra("BluetoothAddress",mBluetoothAddress);
-			//startActivityForResult(confIntent, REQUEST_CONFIGURE_SHIMMER);
-     		Shimmer shimmer = mService.getShimmer(mBluetoothAddress);
-			showEnableSensors(shimmer.getListofSupportedSensors(),mService.getEnabledSensors(mBluetoothAddress));
+		} else if (itemId == R.id.streamnone) {
+			if((mService.getDevicesConnectedCount() > 0)&&(mService.getDevicesStreamingCount()>0)){
+				mService.stopStreamingAllDevices();
+			}else{
+				Toast.makeText(getContext(), "No action required", Toast.LENGTH_SHORT).show();
+			}
 			return true;
 		} else if (itemId == R.id.viewsensor) {
 			showSelectSensorPlot();
-			return true;
-		} else if (itemId == R.id.commands) {
-			Intent commandIntent=new Intent(this, CommandsActivity.class);
-			commandIntent.putExtra("BluetoothAddress",mBluetoothAddress);
-			commandIntent.putExtra("SamplingRate",mService.getSamplingRate(mBluetoothAddress));
-			commandIntent.putExtra("AccelerometerRange",mService.getAccelRange(mBluetoothAddress));
-			commandIntent.putExtra("GSRRange",mService.getGSRRange(mBluetoothAddress));
-			commandIntent.putExtra("BatteryLimit",mService.getBattLimitWarning(mBluetoothAddress));
-			startActivityForResult(commandIntent, REQUEST_COMMAND_SHIMMER);
 			return true;
 		} else if (itemId == R.id.logfile) {
 			Intent logfileIntent=new Intent(this, LogFileActivity.class);
@@ -872,20 +941,22 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 		}
 	}
 	
+	/**
+	 * disable graph edit for sensors which are not enabled
+	 */
 	public void showSelectSensorPlot(){
 		mDialog.setContentView(R.layout.dialog_sensor_view);
 		TextView title = (TextView) mDialog.findViewById(android.R.id.title);
  		title.setText("Select Signal");
  		final ListView listView = (ListView) mDialog.findViewById(android.R.id.list);
 		listView.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
-		List<String> sensorList = mService.getListofEnabledSensors(mBluetoothAddress);
+		List<String> sensorList = mService.getListofEnabledSensors(mSelectedDeviceAddr);
 		sensorList.add("Timestamp");
 		final String[] sensorNames = sensorList.toArray(new String[sensorList.size()]);
 		ArrayAdapter<String> adapterSensorNames = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_multiple_choice, android.R.id.text1, sensorNames);
 		listView.setAdapter(adapterSensorNames);
 		
 		listView.setOnItemClickListener(new OnItemClickListener(){
-
 			@Override
 			public void onItemClick(AdapterView<?> arg0, View arg1, int arg2,
 					long arg3) {
@@ -923,6 +994,9 @@ public class ShimmerGraphandLogService extends ServiceActivity {
         			mTextSensor1.setText("MagnetometerX");
         			mTextSensor2.setText("MagnetometerY");
         			mTextSensor3.setText("MagnetometerZ");
+        		}
+        		if(mSensorView.equals("Barometer")){
+        			mTextSensor1.setText("Barometer");
         		}
         		if (mSensorView.equals("GSR")){
         			mTextSensor1.setText("GSR");
@@ -979,16 +1053,86 @@ public class ShimmerGraphandLogService extends ServiceActivity {
         			mTextSensor1.setText("Pressure");
         			mTextSensor2.setText("Temperature");
         		}
-        		
     			mDialog.dismiss();
 			}
-			
 		});
-		
 		mDialog.show();
  		
 	}
 	
+	public void onCreateContextMenu(ContextMenu menu, View v, ContextMenuInfo menuInfo){
+		super.onCreateContextMenu(menu, v, menuInfo);
+		MenuInflater inflater = getMenuInflater();
+		inflater.inflate(R.menu.context_menu, menu); 
+		AdapterContextMenuInfo info = (AdapterContextMenuInfo) menuInfo;
+		//String select = ((TextView) info.targetView).getText().toString();
+		String select = ((TextView)info.targetView.findViewById(R.id.device_cell)).getText().toString();
+		mSelectedDeviceName = select.split("\n")[0];
+		mSelectedDeviceAddr = select.split("\n")[1];
+		mService.setOperatingDevice(mSelectedDeviceAddr);
+		if(mSelectedDeviceAddr.equalsIgnoreCase(ShimmerService.LOCAL_DEVICE_ADDR)){
+			menu.findItem(R.id.settings).setVisible(false);
+			menu.findItem(R.id.commands).setVisible(false);
+		}
+		Toast.makeText(getContext(), 
+				"selected: "+mSelectedDeviceName+":"+mSelectedDeviceAddr, Toast.LENGTH_SHORT).show();
+	}
+	
+	public boolean onContextItemSelected(MenuItem item){
+		AdapterContextMenuInfo info = (AdapterContextMenuInfo) item.getMenuInfo(); 
+		switch(item.getItemId()){
+			case R.id.startStream:
+				if (mService.isDeviceStreaming(mSelectedDeviceAddr)){
+					Toast.makeText(getContext(), mSelectedDeviceAddr+" is already streaming", 
+										Toast.LENGTH_SHORT).show();
+					Log.d("Shimmer", "already streaming");
+				}else if((!mSelectedDeviceAddr.equalsIgnoreCase(ShimmerService.LOCAL_DEVICE_ADDR))&&
+						!(mService.GetInstructionStatus(mSelectedDeviceAddr))){
+					Toast.makeText(getContext(), mSelectedDeviceAddr+" is in the middle of something", 
+							Toast.LENGTH_SHORT).show();
+				}else{
+					mService.startStreaming(mSelectedDeviceAddr);
+					Log.d("Shimmer", "start streaming");
+					//log = new Logging(mFileName,"\t");
+				}
+				return true;
+			case R.id.stopStream:
+				if (mService.isDeviceStreaming(mSelectedDeviceAddr)){
+					mService.stopStreaming(mSelectedDeviceAddr);
+				}else{
+					Toast.makeText(getContext(), mSelectedDeviceAddr+" is not streaming at all", 
+							Toast.LENGTH_SHORT).show();
+				}
+				return true;
+			case R.id.settings:
+				if(mService.isDeviceStreaming(mSelectedDeviceAddr)||
+						!mService.GetInstructionStatus(mSelectedDeviceAddr)){
+					Toast.makeText(getContext(), mSelectedDeviceAddr+" is in the middle of something", 
+							Toast.LENGTH_SHORT).show();
+				}else{
+					Shimmer shimmer = mService.getShimmer(mSelectedDeviceAddr);
+					showEnableSensors(shimmer.getListofSupportedSensors(),mService.getEnabledSensors(mSelectedDeviceAddr));
+				}
+				return true;
+			case R.id.commands:
+				if(mService.isDeviceStreaming(mSelectedDeviceAddr)||
+						!mService.GetInstructionStatus(mSelectedDeviceAddr)){
+					Toast.makeText(getContext(), mSelectedDeviceAddr+" is in the middle of something", 
+							Toast.LENGTH_SHORT).show();
+				}else{
+		     		Intent commandIntent=new Intent(this, CommandsActivity.class);
+		     		commandIntent.putExtra("BluetoothAddress",mSelectedDeviceAddr);
+		     		commandIntent.putExtra("SamplingRate",mService.getSamplingRate(mSelectedDeviceAddr));
+		     		commandIntent.putExtra("AccelerometerRange",mService.getAccelRange(mSelectedDeviceAddr));
+		     		commandIntent.putExtra("GSRRange",mService.getGSRRange(mSelectedDeviceAddr));
+		     		commandIntent.putExtra("BatteryLimit",mService.getBattLimitWarning(mSelectedDeviceAddr));
+		     		startActivityForResult(commandIntent, REQUEST_COMMAND_SHIMMER);
+				}
+				return true;
+			default:
+				return super.onContextItemSelected(item);
+		}
+	}
 	
 	public void showEnableSensors(final String[] sensorNames, int enabledSensors){
 		dialogEnabledSensors=enabledSensors;
@@ -1000,50 +1144,52 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 		ArrayAdapter<String> adapterSensorNames = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_multiple_choice, android.R.id.text1, sensorNames);
 		listView.setAdapter(adapterSensorNames);
 		final BiMap<String,String> sensorBitmaptoName;
-		sensorBitmaptoName = Shimmer.generateBiMapSensorIDtoSensorName(mService.getShimmerVersion(mBluetoothAddress));
+		sensorBitmaptoName = Shimmer.generateBiMapSensorIDtoSensorName(mService.getShimmerVersion(mSelectedDeviceAddr));
 		for (int i=0;i<sensorNames.length;i++){
 			int iDBMValue = Integer.parseInt(sensorBitmaptoName.inverse().get(sensorNames[i]));	
 			if( (iDBMValue & enabledSensors) >0){
 				listView.setItemChecked(i, true);
 			}
-		}
-				
-		listView.setOnItemClickListener(new OnItemClickListener(){
-			
+		}	
+		listView.setOnItemClickListener(new OnItemClickListener(){	
 			@Override
-			public void onItemClick(AdapterView<?> arg0, View arg1, int clickIndex,
-					long arg3) {
-					int sensorIdentifier = Integer.parseInt(sensorBitmaptoName.inverse().get(sensorNames[clickIndex]));
-					//check and remove any old daughter boards (sensors) which will cause a conflict with sensorIdentifier 
-					dialogEnabledSensors = mService.sensorConflictCheckandCorrection(mBluetoothAddress,dialogEnabledSensors,sensorIdentifier);
-					//update the checkbox accordingly
-					for (int i=0;i<sensorNames.length;i++){
-						int iDBMValue = Integer.parseInt(sensorBitmaptoName.inverse().get(sensorNames[i]));	
-						if( (iDBMValue & dialogEnabledSensors) >0){
-							listView.setItemChecked(i, true);
-						} else {
-							listView.setItemChecked(i, false);
-						}
+			public void onItemClick(AdapterView<?> arg0, View arg1, int clickIndex, long arg3) {
+				int sensorIdentifier = Integer.parseInt(sensorBitmaptoName.inverse().get(sensorNames[clickIndex]));
+				//check and remove any old daughter boards (sensors) which will cause a conflict with sensorIdentifier 
+				dialogEnabledSensors = mService.sensorConflictCheckandCorrection(mSelectedDeviceAddr,dialogEnabledSensors,sensorIdentifier);
+				//update the checkbox accordingly
+				for (int i=0;i<sensorNames.length;i++){
+					int iDBMValue = Integer.parseInt(sensorBitmaptoName.inverse().get(sensorNames[i]));	
+					if( (iDBMValue & dialogEnabledSensors) >0){
+						listView.setItemChecked(i, true);
+					} else {
+						listView.setItemChecked(i, false);
 					}
-			}
-			
+				}
+			}	
 		});
 		
 		Button mDoneButton = (Button)mDialog.findViewById(R.id.buttonEnableSensors);
-		
 		mDoneButton.setOnClickListener(new OnClickListener(){
-
 			@Override
 			public void onClick(View arg0) {
 				// TODO Auto-generated method stub
-				mService.setEnabledSensors(dialogEnabledSensors,mBluetoothAddress);
+				mService.setEnabledSensors(dialogEnabledSensors,mSelectedDeviceAddr);
 				mDialog.dismiss();
 			}});
-		
-		
 		mDialog.show();
- 		
 	}
 	
-	
+	/**
+	 * Play a sound indicating the start of logging
+	 */
+	private void beep(){
+		try {
+		    Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+		    Ringtone r = RingtoneManager.getRingtone(this, notification);
+		    r.play();
+		} catch (Exception e) {
+		    e.printStackTrace();
+		}
+	}
 }

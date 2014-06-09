@@ -48,7 +48,7 @@ public class LogFileActivity extends Activity {
 				Intent intent = new Intent();
 		        intent.putExtra("LogFileEnableLogging", mEnableLogging);
 		        // Set result and finish this Activity
-		        intent.putExtra("LogFileName",mEdit.getText().toString());
+		        intent.putExtra("SubjectName",mEdit.getText().toString());
 		        setResult(Activity.RESULT_OK, intent);
 		        finish();
 			}

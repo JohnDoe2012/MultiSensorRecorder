@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android" >
+    <item android:id="@+id/startStream" android:title="@string/startstream"></item>
+    <item android:id="@+id/stopStream" android:title="@string/stopstream"></item>
+    <item android:id="@+id/settings" android:title="@string/settings"></item>
+    <item android:id="@+id/commands" android:title="@string/commands"></item>
+</menu>

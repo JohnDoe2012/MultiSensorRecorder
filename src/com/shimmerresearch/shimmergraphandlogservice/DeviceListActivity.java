@@ -19,7 +19,9 @@ package com.shimmerresearch.shimmergraphandlogservice;
 
 import java.util.Set;
 
+import com.shimmerresearch.service.ShimmerService;
 import com.shimmerresearch.shimmergraphandlogservice.R;
+
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -107,7 +109,8 @@ public class DeviceListActivity extends Activity {
 
         // Get the local Bluetooth adapter
         mBtAdapter = BluetoothAdapter.getDefaultAdapter();
-
+        // JD: add local
+        mPairedDevicesArrayAdapter.add("Local" + "\n" + ShimmerService.LOCAL_DEVICE_ADDR);
         // Get a set of currently paired devices
         Set<BluetoothDevice> pairedDevices = mBtAdapter.getBondedDevices();
 
