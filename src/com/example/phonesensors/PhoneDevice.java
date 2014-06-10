@@ -209,6 +209,8 @@ public class PhoneDevice implements SensorEventListener{
 			mMyName = "Thigh";
 		}else if(mBluetoothAddress.equalsIgnoreCase("70:F9:27:60:42:43")){
 			mMyName = "Arm";
+		}else if(mBluetoothAddress.equalsIgnoreCase("8C:3A:E3:F0:F5:5C")){
+			mMyName = "Arm";
 		}else{
 			mMyName = "Local";
 		}
