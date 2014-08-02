@@ -218,7 +218,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 		 
 	     // keep awake
 	        pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-	        wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"CPU on");
+	        //wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"CPU on");
 		 if (!isMyServiceRunning())
 	      {
 	      	Log.d("ShimmerH","Oncreate2");
@@ -231,7 +231,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	  		}
 	      	mTitle.setText(R.string.title_not_connected); // if no service is running means no devices are connected
 	      //wake lock started
-	      	wl.acquire();
+	      	//wl.acquire();
 	      }         
 //		 
 //	      if (mBluetoothAddress!=null){
@@ -301,7 +301,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	@Override
 	protected void onDestroy() {
 		mService.onDestroy();
-		wl.release();
+		//wl.release();
 		super.onDestroy();
 		Log.d("ShimmerActivity","On Destroy");
 	}

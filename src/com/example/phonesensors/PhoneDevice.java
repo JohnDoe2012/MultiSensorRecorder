@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -36,7 +37,7 @@ public class PhoneDevice implements SensorEventListener{
 	private int mState;
 	
 //	private Timer mSensorTimer;
-	private ScheduledThreadPoolExecutor mSensorScheduler;
+	private ExceptionProofExecutor mSensorScheduler;
 	private SensorManager mSensorManager;
 	private int mSensorCapa = 0;
 	private float bufAcce[];
@@ -306,26 +307,68 @@ public class PhoneDevice implements SensorEventListener{
 		return objectCluster;
 	}
 	
-	private void startScheduler(ScheduledThreadPoolExecutor aScheduler, Runnable aTimerTask, long delay, long period){
-		aScheduler = (ScheduledThreadPoolExecutor) Executors.newScheduledThreadPool(10);
+	private void startScheduler(ExceptionProofExecutor aScheduler, Runnable aTimerTask, long delay, long period){
+		//aScheduler = (ScheduledThreadPoolExecutor) Executors.newScheduledThreadPool(10);
+		aScheduler = new ExceptionProofExecutor(2);
 		aScheduler.scheduleAtFixedRate(aTimerTask, delay, period, TimeUnit.MILLISECONDS);
 	}
 	
-	private void stopScheduler(ScheduledThreadPoolExecutor aScheduler){
+	private void stopScheduler(ExceptionProofExecutor aScheduler){
 		if(aScheduler!=null){
 			aScheduler.shutdown();
 		}
 	}
 	
 	private class SensorSampleSchedule implements Runnable{
+		Throwable errorMessage;
 		@Override
 		public void run() {
 			if(mState==Shimmer.MSG_STATE_STREAMING){
-				mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildData()).sendToTarget();
+				try{
+					mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildData()).sendToTarget();
+				}catch(Throwable e){
+					e.printStackTrace();
+					errorMessage = e;
+				}
+				throw new RuntimeException(errorMessage);
 //				if(isFirst){
 //					beep();
 //					isFirst = false;
 //				}
+			}
+		}
+	}
+	
+	private class ExceptionProofExecutor extends ScheduledThreadPoolExecutor{
+		public ExceptionProofExecutor(int corePoolSize){
+			super(corePoolSize);
+		}
+		
+		public ScheduledFuture scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit){
+			return super.scheduleAtFixedRate(wrapRunnable(command), initialDelay, period, unit);
+		}
+		
+		private Runnable wrapRunnable(Runnable command){
+			return new LogOnExceptionRunnable(command);
+		}
+		
+		private class LogOnExceptionRunnable implements Runnable{
+			private Runnable mRunnable;
+			
+			public LogOnExceptionRunnable(Runnable aRunnable){
+				super();
+				mRunnable = aRunnable;
+			}
+
+			@Override
+			public void run() {
+				try{
+					mRunnable.run();
+				}catch (Throwable e){
+					System.err.println("Runnable error");
+					e.printStackTrace();
+					//throw new RuntimeException(e);
+				}
 			}
 		}
 	}
