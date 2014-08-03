@@ -40,7 +40,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
-
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
 import android.bluetooth.BluetoothAdapter;
@@ -76,7 +76,6 @@ import android.widget.ListView;
 import android.widget.SimpleAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import com.google.common.collect.BiMap;
 import com.shimmerresearch.android.Shimmer;
 import com.shimmerresearch.driver.FormatCluster;
@@ -135,7 +134,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
     
     //continuously recording
     private PowerManager pm;
-    private PowerManager.WakeLock wl;
+    private static PowerManager.WakeLock wl;
     
     /** Called when the activity is first created. */
     @Override
@@ -217,8 +216,8 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 		 }
 		 
 	     // keep awake
-	        pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-	        //wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"CPU on");
+	     pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+	     wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"CPU on");
 		 if (!isMyServiceRunning())
 	      {
 	      	Log.d("ShimmerH","Oncreate2");
@@ -230,8 +229,6 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	  			mServiceFirstTime=false;
 	  		}
 	      	mTitle.setText(R.string.title_not_connected); // if no service is running means no devices are connected
-	      //wake lock started
-	      	//wl.acquire();
 	      }         
 //		 
 //	      if (mBluetoothAddress!=null){
@@ -301,7 +298,6 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	@Override
 	protected void onDestroy() {
 		mService.onDestroy();
-		//wl.release();
 		super.onDestroy();
 		Log.d("ShimmerActivity","On Destroy");
 	}
@@ -326,6 +322,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 	
 	
 	// JD: The Handler that gets information back from the BluetoothChatService and ShimmerService
+	@SuppressLint("Wakelock")
 	private static Handler mHandler = new Handler() {
 		public void handleMessage(Message msg) {
 			switch (msg.what) {
@@ -341,6 +338,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 							break;
 						case Shimmer.MSG_STATE_FULLY_INITIALIZED:
 							Log.d("ShimmerActivity","Message Fully Initialized Received from Shimmer driver");
+							if(wl.isHeld()) wl.release();
 							/* JD: new device connected, add it to connected device list */
 							mNewConnectedDeviceAddr=((ObjectCluster)msg.obj).mBluetoothAddress;
 							boolean isNew = true;
@@ -378,9 +376,12 @@ public class ShimmerGraphandLogService extends ServiceActivity {
                     		break;
 						case Shimmer.STATE_CONNECTING:
 							Log.d("ShimmerActivity","Driver is attempting to establish connection with Shimmer device");
-							mTitle.setText(R.string.title_connecting);
+							//mTitle.setText(R.string.title_connecting);
 							break;
 						case Shimmer.MSG_STATE_STREAMING:
+							Log.d("ShimmerActivity","Devices start streaming");
+							/* keep cpu up only when it is streaming */
+							if(!wl.isHeld()) wl.acquire();
 							String address = ((ObjectCluster)msg.obj).mBluetoothAddress;
 							/* refresh UI */
 							for(int i = 0; i < mConnectedDeviceList.size(); i++){
@@ -394,6 +395,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 							break;
 						case Shimmer.STATE_NONE:
 							Log.d("ShimmerActivity","Shimmer No State");
+							if(wl.isHeld()) wl.release();
 							int i = 0;
 							for(i = 0; i < mConnectedDeviceList.size(); i++){
 								if(mConnectedDeviceList.get(i).get("device_cell").
@@ -422,6 +424,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 					}
 					break;
 				case Shimmer.MESSAGE_STOP_STREAMING_COMPLETE:
+					if(wl.isHeld()) wl.release();
 					String address =  msg.getData().getString("Bluetooth Address");
 					boolean stop  =  msg.getData().getBoolean("Streaming Stopped");
 					int queue = stop ? 0 : msg.getData().getInt("Queue Size Remaining");
@@ -910,11 +913,13 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 			return true;
 		} else if (itemId == R.id.streamall) {
 			if((mService.getDevicesConnectedCount() > 0)&&(mService.getDevicesStreamingCount()==0)){
+				Toast.makeText(getContext(), "Start streaming count down 30 seconds", 
+						Toast.LENGTH_SHORT).show();
 				mHandler.postDelayed(new Runnable(){
 					@Override
 					public void run() {
-						mService.startStreamingAllDevices();
 						beep();
+						mService.startStreamingAllDevices();
 					}
 				}, PREPARE_INTRVL);
 			}else{

@@ -525,6 +525,7 @@ public class ShimmerService extends Service {
 		Logging mLogger = mLogShimmer.get(bluetoothAddress);
 		if (mEnableLogging==true && mLogger!=null){
 			while(mLogger.getQueueSize()>0){
+				Log.d(TAG, "Queue not clear: "+mLogger.getQueueSize());
 				Message msg = mHandlerGraph.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
 		        Bundle bundle = new Bundle();
 		        bundle.putBoolean("Streaming Stopped", false);
@@ -535,7 +536,9 @@ public class ShimmerService extends Service {
 			}
 			mLogger.setStreamState(false);
 			mLogger.closeFile();
+			Log.d(TAG, "Logging closed");
 			mLogShimmer.remove(bluetoothAddress);
+			Log.d(TAG, "Logging removed: "+mLogShimmer.size());
 			/* DONE, inform UI */
 			Message msg = mHandlerGraph.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
 	        Bundle bundle = new Bundle();
@@ -633,7 +636,8 @@ public class ShimmerService extends Service {
 	                    case Shimmer.STATE_CONNECTING:
 	                    	intent.putExtra("ShimmerBluetoothAddress", ((ObjectCluster) msg.obj).mBluetoothAddress );
 	                    	intent.putExtra("ShimmerDeviceName", ((ObjectCluster) msg.obj).mMyName );
-	                    	intent.putExtra("ShimmerState",Shimmer.STATE_CONNECTING);	                        
+	                    	intent.putExtra("ShimmerState",Shimmer.STATE_CONNECTING);
+	                    	sendBroadcast(intent);
 	                    	break;
 	                    case Shimmer.STATE_NONE:
 	                    	intent.putExtra("ShimmerBluetoothAddress", ((ObjectCluster) msg.obj).mBluetoothAddress );

@@ -93,8 +93,8 @@ public class Logging {
 		/* packet processing thread */
 		bq = new LinkedBlockingQueue<ObjectCluster>();
 		mLogWriter = new LogWriter();
-		mWorkerThread = new Thread(mLogWriter);
-		mWorkerThread.start();
+		//mWorkerThread = new Thread(mLogWriter);
+		//mWorkerThread.start();
 	}
 	
 	/**
@@ -127,6 +127,7 @@ public class Logging {
 	 * @return log queue size
 	 */
 	public int getQueueSize(){
+		checkWorkerThread();
 		return bq.size();
 	}
 	
@@ -180,7 +181,7 @@ public class Logging {
 			for (int r=0;r<mSensorNames.length;r++) {
 				Collection<FormatCluster> dataFormats = objectClusterLog.mPropertyCluster.get(mSensorNames[r]);  
 				FormatCluster formatCluster = (FormatCluster) returnFormatCluster(dataFormats,mSensorFormats[r],mSensorUnits[r]);  // retrieve the calibrated data
-				Log.d(TAG,"Data : " +mSensorNames[r] + formatCluster.mData + " "+ formatCluster.mUnits);
+				//Log.d(TAG,"Data : " +mSensorNames[r] + formatCluster.mData + " "+ formatCluster.mUnits);
 				//TODO: clear data buffer? 
 				if(mSensorFormats[r].contains("CAL")){
 					if(mSensorNames[r].contains("Time")||mSensorNames[r].contains("Timestamp")){
@@ -227,9 +228,22 @@ public class Logging {
 	public void appendData(ObjectCluster objectCluster){
 		try{
 			bq.put(objectCluster);
+			checkWorkerThread();
 //			Log.d(TAG, "append to queue: "+bq.size());
 		}catch (Exception e){
 			throw new RuntimeException(e);
+		}
+	}
+	
+	/**
+	 * Check if worker thread is working properly
+	 */
+	private void checkWorkerThread(){
+		/* in case the worker thread is accidentally killed, restart it */
+		if((mWorkerThread==null)||(!mWorkerThread.isAlive())){
+			Log.d(TAG, "Worker thread is gone!");
+			if(mWorkerThread==null) mWorkerThread = new Thread(mLogWriter);
+			mWorkerThread.start();
 		}
 	}
 	
@@ -265,7 +279,7 @@ public class Logging {
 		public void run() {
 			try{
 				while(isStreaming|!bq.isEmpty()){
-//					Log.d(TAG, "write data from queue "+bq.size());
+					Log.d(TAG, "write data from queue "+bq.size());
 					logData(bq.take());
 				}
 			}catch(Exception e){

@@ -150,7 +150,7 @@ public class PhoneDevice implements SensorEventListener{
 	public void startStreaming(){
 		if(mState==Shimmer.MSG_STATE_FULLY_INITIALIZED){
 //			startTimer(mSensorTimer, new SensorSampleTask(), 10, mSamplingRate);
-			startScheduler(mSensorScheduler, new SensorSampleSchedule(), 0, mSamplingRate);
+			startScheduler(mSensorScheduler, new SensorSampleSchedule(), 10, mSamplingRate);
 			setState(Shimmer.MSG_STATE_STREAMING);
 //			isFirst = true;
 		}
@@ -365,9 +365,7 @@ public class PhoneDevice implements SensorEventListener{
 				try{
 					mRunnable.run();
 				}catch (Throwable e){
-					System.err.println("Runnable error");
-					e.printStackTrace();
-					//throw new RuntimeException(e);
+					//e.printStackTrace();
 				}
 			}
 		}
