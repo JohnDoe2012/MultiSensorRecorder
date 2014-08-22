@@ -87,7 +87,7 @@ import com.shimmerresearch.tools.Logging;
 
 public class ShimmerGraphandLogService extends ServiceActivity {
 	private static final String TAG = "MainActivity";
-	private static final int PREPARE_INTRVL = 30000; //ms
+	private static final int PREPARE_INTRVL = 10000; //ms
 	private static Context context;
 	static final int REQUEST_ENABLE_BT = 1;
 	static final int REQUEST_CONNECT_SHIMMER = 2;
@@ -913,8 +913,8 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 			return true;
 		} else if (itemId == R.id.streamall) {
 			if((mService.getDevicesConnectedCount() > 0)&&(mService.getDevicesStreamingCount()==0)){
-				Toast.makeText(getContext(), "Start streaming count down 30 seconds", 
-						Toast.LENGTH_SHORT).show();
+				String prepareMsg = "Start streaming count down "+PREPARE_INTRVL/1000+" seconds";
+				Toast.makeText(getContext(), prepareMsg, Toast.LENGTH_SHORT).show();
 				mHandler.postDelayed(new Runnable(){
 					@Override
 					public void run() {

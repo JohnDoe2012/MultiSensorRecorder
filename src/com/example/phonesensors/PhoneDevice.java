@@ -1,5 +1,9 @@
 package com.example.phonesensors;
 
+import java.io.BufferedWriter;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -10,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.shimmerresearch.android.Shimmer;
 import com.shimmerresearch.driver.*;
+import com.shimmerresearch.tools.Logging;
 
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
@@ -20,6 +25,8 @@ import android.hardware.SensorManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -27,7 +34,7 @@ import android.util.Log;
 
 public class PhoneDevice implements SensorEventListener{
 	private static final String TAG = "LOCAL";
-	public static final int SAMPLING_INTRVL = 20; 	//ms
+	public static final int SAMPLING_INTRVL = 20000; 	//ms
 	public static final int SENSOR_BARO = 0x100;
 	
 	private Context mContext;
@@ -47,6 +54,13 @@ public class PhoneDevice implements SensorEventListener{
 	private long mSamplingRate = SAMPLING_INTRVL;	//ms
 //	private boolean isFirst = false;
 	
+	/* Wifi Scanning device*/
+	private String mWifiAddress;
+	private Timer mWifiScanner = null;
+	private Thread mWifiScannerThread = null;
+	private Process su = null;
+	private Logging mWifiLogging;
+	
 	/**
 	 * Constructor
 	 * @param aContext
@@ -59,6 +73,8 @@ public class PhoneDevice implements SensorEventListener{
 		mBluetoothAddress = BluetoothAdapter.getDefaultAdapter().getAddress();
 		setDeviceName();
 		mSensorManager = (SensorManager)mContext.getSystemService(Context.SENSOR_SERVICE);
+		WifiManager wifiMan = (WifiManager)mContext.getSystemService(Context.WIFI_SERVICE);
+		mWifiAddress = wifiMan.getConnectionInfo().getMacAddress();
 		getCapability();
 		Log.d(TAG, "local device created");
 	}
@@ -109,25 +125,25 @@ public class PhoneDevice implements SensorEventListener{
 				bufAcce = new float[3];
 				mSensorManager.registerListener(this, 
 					mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), 
-					SensorManager.SENSOR_DELAY_FASTEST);
+					SensorManager.SENSOR_DELAY_NORMAL);
 			}
 			if(((mSensorCapa&0xFFF) & Shimmer.SENSOR_MAG)!=0){
 				bufOrie = new float[3];
 				mSensorManager.registerListener(this, 
 					mSensorManager.getDefaultSensor(Sensor.TYPE_ORIENTATION), 
-					SensorManager.SENSOR_DELAY_FASTEST);
+					SensorManager.SENSOR_DELAY_NORMAL);
 			}
 			if(((mSensorCapa&0xFFF) & Shimmer.SENSOR_GYRO)!=0){
 				bufGyro = new float[3];
 				mSensorManager.registerListener(this, 
 					mSensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE), 
-					SensorManager.SENSOR_DELAY_FASTEST);
+					SensorManager.SENSOR_DELAY_NORMAL);
 			}
 			if(((mSensorCapa&0xFFF) & SENSOR_BARO)!=0){
 				bufBaro = new float[1];
 				mSensorManager.registerListener(this, 
 					mSensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE), 
-					SensorManager.SENSOR_DELAY_FASTEST);
+					SensorManager.SENSOR_DELAY_NORMAL);
 			}
 			setState(Shimmer.MSG_STATE_FULLY_INITIALIZED);
 		}
@@ -151,6 +167,13 @@ public class PhoneDevice implements SensorEventListener{
 		if(mState==Shimmer.MSG_STATE_FULLY_INITIALIZED){
 //			startTimer(mSensorTimer, new SensorSampleTask(), 10, mSamplingRate);
 			startScheduler(mSensorScheduler, new SensorSampleSchedule(), 10, mSamplingRate);
+			try{
+				su = Runtime.getRuntime().exec(new String[]{"su", "-c", "system/bin/sh"});
+			}catch(IOException e) {
+				e.printStackTrace();
+			}
+			mWifiScanner = new Timer();
+			mWifiScanner.scheduleAtFixedRate(new WifiScannerTask(), 0, 6000);
 			setState(Shimmer.MSG_STATE_STREAMING);
 //			isFirst = true;
 		}
@@ -164,7 +187,16 @@ public class PhoneDevice implements SensorEventListener{
 //			stopTimer(mSensorTimer);
 			setState(Shimmer.MSG_STATE_FULLY_INITIALIZED);
 			stopScheduler(mSensorScheduler);
+			mWifiScanner.cancel();
+			if (mWifiScannerThread!=null) mWifiScannerThread.interrupt();
 			/* ask shimmer service to clear logfile material */
+			Message wmsg = mHandler.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
+			Bundle wbundle = new Bundle();
+			wbundle.putBoolean("Stop Streaming", true);
+			wbundle.putString("Bluetooth Address", mWifiAddress);
+	        wmsg.setData(wbundle);
+	        mHandler.sendMessage(wmsg);
+			
 			Message msg = mHandler.obtainMessage(Shimmer.MESSAGE_STOP_STREAMING_COMPLETE);
 	        Bundle bundle = new Bundle();
 	        bundle.putBoolean("Stop Streaming", true);
@@ -370,6 +402,69 @@ public class PhoneDevice implements SensorEventListener{
 			}
 		}
 	}
+	
+	/**
+	 * Encapsulate sampled sensor readings into objectCluster
+	 * @return objectCluster contains sensor readings
+	 */
+	private ObjectCluster buildWiFiData(String results){
+		ObjectCluster objectCluster=new ObjectCluster(mMyName+"_WIFI_"+results, mWifiAddress);
+		return objectCluster;
+	}
+	
+	/**
+	 * A timer task that periodically check if the continuous scanning thread is running properly
+	 * if not, restart the thread
+	 */
+	private class WifiScannerTask extends TimerTask{
+		@Override
+		public void run() {
+			if((mWifiScannerThread!=null)&&(mWifiScannerThread.isAlive())){
+				
+			}else{
+				if (mWifiScannerThread!=null) mWifiScannerThread.interrupt();
+				mWifiScannerThread = new Thread(new WiFiScanningTask());
+				mWifiScannerThread.start();
+			}
+		}
+	}
+	
+	private class WiFiScanningTask implements Runnable {
+		@Override
+		public void run() {
+			try{
+				DataOutputStream stdin = new DataOutputStream(su.getOutputStream());
+				InputStream stdout = su.getInputStream();
+				while(mState==Shimmer.MSG_STATE_STREAMING){
+					Log.d(TAG, "start Wifi scan");
+					//stdin.writeBytes("iw dev wlan0 scan freq 2412 2417 2432 2437 2457 2462 5180 5200 5220 5240\n");
+					stdin.writeBytes("iw dev wlan0 scan freq 2412 2437 2462\n");
+					WifiFingerprint newFgpt = new WifiFingerprint(System.currentTimeMillis());
+					byte[] buffer = new byte[4096];
+					int read;
+					String results = new String();
+					//read method will wait forever if there is nothing in the stream
+					//so we need to read it in another way than while((read=stdout.read(buffer))>0)
+					while(true){
+					    read = stdout.read(buffer);
+					    results += new String(buffer, 0, read);
+					    if(read<4096){
+					        //we have read everything
+					        break;
+					    }
+					}
+					Log.d(TAG, "results: "+results);
+					newFgpt.setTimeRCVD(System.currentTimeMillis());
+					newFgpt.addScanObs(results);
+					newFgpt.mergeObs(null);
+					mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildWiFiData(newFgpt.println(1))).sendToTarget();
+				}
+			}catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
 	
 //	/**
 //	 * Play a sound indicating the start of logging

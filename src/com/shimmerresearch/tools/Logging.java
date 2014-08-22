@@ -137,87 +137,101 @@ public class Logging {
 	 */
 	public void logData(ObjectCluster objectCluster){
 		ObjectCluster objectClusterLog = objectCluster;
-		/* write ordered version */
-		try {
-			if (mFirstWrite==true) {
-				//writer = new BufferedWriter(new FileWriter(outputFile,true));
-				//First retrieve all the unique keys from the objectClusterLog
-				Multimap<String, FormatCluster> m = objectClusterLog.mPropertyCluster;
-				int size = m.size();
-				System.out.print(size);
-				mSensorNames=new String[size];
-				mSensorFormats=new String[size];
-				mSensorUnits=new String[size];
-				int i=0;
-				int p=0;
-				for(String key : m.keys()) {
-					//first check that there are no repeat entries
-					if(compareStringArray(mSensorNames, key) == true) {
-						for(FormatCluster formatCluster : m.get(key)) {
-							mSensorFormats[p]=formatCluster.mFormat;
-							mSensorUnits[p]=formatCluster.mUnits;
-							//Log.d("Shimmer",key + " " + mSensorFormats[p] + " " + mSensorUnits[p]);
-							p++;
-						}
-					}	
-					mSensorNames[i]=key;
-					i++;				 
+		if(objectCluster.mMyName.contains("WIFI")){
+			try{
+				if (mFirstWrite==true) {
+					writer = new BufferedWriter(new FileWriter(outputFile,false));
+					mFirstWrite=false;
 				}
-				// write header to a file
-				writer = new BufferedWriter(new FileWriter(outputFile,false));
-				String header = "#Time(mSecs)"+mDelimiter+
-						"AcceX(m/(sec^2))"+mDelimiter+"AcceY(m/(sec^2))"+mDelimiter+"AcceZ(m/(sec^2))"+mDelimiter+
-						"MagnX"+mDelimiter+"MagnY"+mDelimiter+"MagnZ"+mDelimiter+
-						"GyroX(deg/sec)"+mDelimiter+"GyroY(deg/sec)"+mDelimiter+"GyroZ(deg/sec)"+mDelimiter+
-						"Baro(hPa)"+mDelimiter+"COSMED"+mDelimiter+"Anno"+"\n";
-				writer.write(header);
-				Log.d(TAG,"Header Written");
-				mFirstWrite=false;
+				String results[] = objectCluster.mMyName.split("_");
+				writer.write(results[2]);
+			}catch (IOException e){
+				e.printStackTrace();
+				Log.e(TAG,"Error with bufferedwriter");
 			}
-		
-			//now print data
-			String timestamp = "";
-			String data[] = new String[10];
-			for (int r=0;r<mSensorNames.length;r++) {
-				Collection<FormatCluster> dataFormats = objectClusterLog.mPropertyCluster.get(mSensorNames[r]);  
-				FormatCluster formatCluster = (FormatCluster) returnFormatCluster(dataFormats,mSensorFormats[r],mSensorUnits[r]);  // retrieve the calibrated data
-				//Log.d(TAG,"Data : " +mSensorNames[r] + formatCluster.mData + " "+ formatCluster.mUnits);
-				//TODO: clear data buffer? 
-				if(mSensorFormats[r].contains("CAL")){
-					if(mSensorNames[r].contains("Time")||mSensorNames[r].contains("Timestamp")){
-						timestamp = Long.toString((long)formatCluster.mData);
-					}else if(mSensorNames[r].contains("AcceX")||mSensorNames[r].contains("Accelerometer X")){
-						data[0] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("AcceY")||mSensorNames[r].contains("Accelerometer Y")){
-						data[1] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("AcceZ")||mSensorNames[r].contains("Accelerometer Z")){
-						data[2] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("MagnX")||mSensorNames[r].contains("Magnetometer X")){
-						data[3] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("MagnY")||mSensorNames[r].contains("Magnetometer Y")){
-						data[4] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("MagnZ")||mSensorNames[r].contains("Magnetometer Z")){
-						data[5] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("GyroX")||mSensorNames[r].contains("Gyroscope X")){
-						data[6] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("GyroY")||mSensorNames[r].contains("Gyroscope Y")){
-						data[7] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("GyroZ")||mSensorNames[r].contains("Gyroscope Z")){
-						data[8] = formatfloat(formatCluster.mData);
-					}else if(mSensorNames[r].contains("Baro")){
-						data[9] = formatfloat(formatCluster.mData);
+		}else{
+			/* write ordered version */
+			try {
+				if (mFirstWrite==true) {
+					//writer = new BufferedWriter(new FileWriter(outputFile,true));
+					//First retrieve all the unique keys from the objectClusterLog
+					Multimap<String, FormatCluster> m = objectClusterLog.mPropertyCluster;
+					int size = m.size();
+					System.out.print(size);
+					mSensorNames=new String[size];
+					mSensorFormats=new String[size];
+					mSensorUnits=new String[size];
+					int i=0;
+					int p=0;
+					for(String key : m.keys()) {
+						//first check that there are no repeat entries
+						if(compareStringArray(mSensorNames, key) == true) {
+							for(FormatCluster formatCluster : m.get(key)) {
+								mSensorFormats[p]=formatCluster.mFormat;
+								mSensorUnits[p]=formatCluster.mUnits;
+								//Log.d("Shimmer",key + " " + mSensorFormats[p] + " " + mSensorUnits[p]);
+								p++;
+							}
+						}	
+						mSensorNames[i]=key;
+						i++;				 
+					}
+					// write header to a file
+					writer = new BufferedWriter(new FileWriter(outputFile,false));
+					String header = "#Time(mSecs)"+mDelimiter+
+							"AcceX(m/(sec^2))"+mDelimiter+"AcceY(m/(sec^2))"+mDelimiter+"AcceZ(m/(sec^2))"+mDelimiter+
+							"MagnX"+mDelimiter+"MagnY"+mDelimiter+"MagnZ"+mDelimiter+
+							"GyroX(deg/sec)"+mDelimiter+"GyroY(deg/sec)"+mDelimiter+"GyroZ(deg/sec)"+mDelimiter+
+							"Baro(hPa)"+mDelimiter+"COSMED"+mDelimiter+"Anno"+"\n";
+					writer.write(header);
+					Log.d(TAG,"Header Written");
+					mFirstWrite=false;
+				}
+			
+				//now print data
+				String timestamp = "";
+				String data[] = new String[10];
+				for (int r=0;r<mSensorNames.length;r++) {
+					Collection<FormatCluster> dataFormats = objectClusterLog.mPropertyCluster.get(mSensorNames[r]);  
+					FormatCluster formatCluster = (FormatCluster) returnFormatCluster(dataFormats,mSensorFormats[r],mSensorUnits[r]);  // retrieve the calibrated data
+					//Log.d(TAG,"Data : " +mSensorNames[r] + formatCluster.mData + " "+ formatCluster.mUnits);
+					//TODO: clear data buffer? 
+					if(mSensorFormats[r].contains("CAL")){
+						if(mSensorNames[r].contains("Time")||mSensorNames[r].contains("Timestamp")){
+							timestamp = Long.toString((long)formatCluster.mData);
+						}else if(mSensorNames[r].contains("AcceX")||mSensorNames[r].contains("Accelerometer X")){
+							data[0] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("AcceY")||mSensorNames[r].contains("Accelerometer Y")){
+							data[1] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("AcceZ")||mSensorNames[r].contains("Accelerometer Z")){
+							data[2] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("MagnX")||mSensorNames[r].contains("Magnetometer X")){
+							data[3] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("MagnY")||mSensorNames[r].contains("Magnetometer Y")){
+							data[4] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("MagnZ")||mSensorNames[r].contains("Magnetometer Z")){
+							data[5] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("GyroX")||mSensorNames[r].contains("Gyroscope X")){
+							data[6] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("GyroY")||mSensorNames[r].contains("Gyroscope Y")){
+							data[7] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("GyroZ")||mSensorNames[r].contains("Gyroscope Z")){
+							data[8] = formatfloat(formatCluster.mData);
+						}else if(mSensorNames[r].contains("Baro")){
+							data[9] = formatfloat(formatCluster.mData);
+						}
 					}
 				}
+				String value = timestamp+mDelimiter+
+						data[0]+mDelimiter+data[1]+mDelimiter+data[2]+mDelimiter+
+						data[3]+mDelimiter+data[4]+mDelimiter+data[5]+mDelimiter+
+						data[6]+mDelimiter+data[7]+mDelimiter+data[8]+mDelimiter+
+						data[9]+mDelimiter+0+mDelimiter+1+"\n";
+				writer.write(value);
+			}catch (IOException e){
+				e.printStackTrace();
+				Log.e(TAG,"Error with bufferedwriter");
 			}
-			String value = timestamp+mDelimiter+
-					data[0]+mDelimiter+data[1]+mDelimiter+data[2]+mDelimiter+
-					data[3]+mDelimiter+data[4]+mDelimiter+data[5]+mDelimiter+
-					data[6]+mDelimiter+data[7]+mDelimiter+data[8]+mDelimiter+
-					data[9]+mDelimiter+0+mDelimiter+1+"\n";
-			writer.write(value);
-		}catch (IOException e){
-			e.printStackTrace();
-			Log.e(TAG,"Error with bufferedwriter");
 		}
 	}
 	
@@ -240,10 +254,10 @@ public class Logging {
 	 */
 	private void checkWorkerThread(){
 		/* in case the worker thread is accidentally killed, restart it */
-		if((mWorkerThread==null)||(!mWorkerThread.isAlive())){
+		if((isStreaming)&&((mWorkerThread==null)||(!mWorkerThread.isAlive()))){
 			Log.d(TAG, "Worker thread is gone!");
 			if(mWorkerThread==null) mWorkerThread = new Thread(mLogWriter);
-			mWorkerThread.start();
+			if(!mWorkerThread.isAlive()) mWorkerThread.start();
 		}
 	}
 	
