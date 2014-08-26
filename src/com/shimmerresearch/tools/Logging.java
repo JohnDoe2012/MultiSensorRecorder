@@ -11,6 +11,9 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import android.content.Context;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Environment;
 import android.util.Log;
 
@@ -256,6 +259,7 @@ public class Logging {
 		/* in case the worker thread is accidentally killed, restart it */
 		if((isStreaming)&&((mWorkerThread==null)||(!mWorkerThread.isAlive()))){
 			Log.d(TAG, "Worker thread is gone!");
+			beep();
 			if(mWorkerThread==null) mWorkerThread = new Thread(mLogWriter);
 			if(!mWorkerThread.isAlive()) mWorkerThread.start();
 		}
@@ -325,6 +329,19 @@ public class Logging {
 	   		}
 	   	}
 		return returnFormatCluster;
+	}
+	
+	/**
+	 * Play a sound indicating the start of logging
+	 */
+	private void beep(){
+		try {
+		    Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+		    Ringtone r = RingtoneManager.getRingtone(mContext, notification);
+		    r.play();
+		} catch (Exception e) {
+		    e.printStackTrace();
+		}
 	}
 }
 

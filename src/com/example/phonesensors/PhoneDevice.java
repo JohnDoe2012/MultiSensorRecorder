@@ -422,6 +422,7 @@ public class PhoneDevice implements SensorEventListener{
 			if((mWifiScannerThread!=null)&&(mWifiScannerThread.isAlive())){
 				
 			}else{
+				beep();
 				if (mWifiScannerThread!=null) mWifiScannerThread.interrupt();
 				mWifiScannerThread = new Thread(new WiFiScanningTask());
 				mWifiScannerThread.start();
@@ -460,11 +461,25 @@ public class PhoneDevice implements SensorEventListener{
 					mHandler.obtainMessage(Shimmer.MESSAGE_READ, buildWiFiData(newFgpt.println(1))).sendToTarget();
 				}
 			}catch (IOException e) {
+				mWifiScannerThread.interrupt();
 				e.printStackTrace();
 			}
 		}
 	}
 	
+	
+	/**
+	 * Play a sound indicating the start of logging
+	 */
+	private void beep(){
+		try {
+		    Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+		    Ringtone r = RingtoneManager.getRingtone(mContext, notification);
+		    r.play();
+		} catch (Exception e) {
+		    e.printStackTrace();
+		}
+	}
 	
 //	/**
 //	 * Play a sound indicating the start of logging
