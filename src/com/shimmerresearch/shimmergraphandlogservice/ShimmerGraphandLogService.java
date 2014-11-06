@@ -380,8 +380,7 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 							break;
 						case Shimmer.MSG_STATE_STREAMING:
 							Log.d("ShimmerActivity","Devices start streaming");
-							/* keep cpu up only when it is streaming */
-							if(!wl.isHeld()) wl.acquire();
+							
 							String address = ((ObjectCluster)msg.obj).mBluetoothAddress;
 							/* refresh UI */
 							for(int i = 0; i < mConnectedDeviceList.size(); i++){
@@ -915,6 +914,8 @@ public class ShimmerGraphandLogService extends ServiceActivity {
 			if((mService.getDevicesConnectedCount() > 0)&&(mService.getDevicesStreamingCount()==0)){
 				Toast.makeText(getContext(), "Start streaming count down 30 seconds", 
 						Toast.LENGTH_SHORT).show();
+				/* keep cpu up only when it is streaming */
+				if(!wl.isHeld()) wl.acquire();
 				mHandler.postDelayed(new Runnable(){
 					@Override
 					public void run() {
